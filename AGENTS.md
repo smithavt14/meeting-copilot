@@ -7,7 +7,7 @@ Before anything else, tell the user that this records and transcribes everyone i
 ## Set it up for a user
 
 1. **Check the prerequisites.**
-   - macOS 14.4 or newer (`sw_vers -productVersion`), or Windows 10/11. On Windows, tell the user the Windows path is untested.
+   - The operating system: macOS 14.4 or newer (check with `sw_vers -productVersion`), or Windows 10/11. On Windows, tell the user the Windows path is untested.
    - uv (`uv --version`). If it is missing, point the user to https://docs.astral.sh/uv/ and stop until it is installed.
    - git.
    - On macOS, the Xcode command line tools (`xcode-select -p`). If missing, ask the user to run `xcode-select --install`; it opens a dialog only they can click.
