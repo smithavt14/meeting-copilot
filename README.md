@@ -147,18 +147,27 @@ elevenlabs_voice = "JBFqnCBsd6RMkjVDRZzb"
 elevenlabs_model = "eleven_flash_v2_5"
 ```
 
-## The Claude Code skill
+## The agent skill
 
-`.claude/skills/meeting-copilot/SKILL.md` is a project skill: Claude Code loads it when you start a session in this repo. Say "copilot this meeting" and it starts `copilot listen` in the background, opens `copilot tail` where you can watch it (or gives you the command), runs `wake` in a loop, answers "Claude, ..." questions in text, fact-checks, scopes ideas with subagents, stays quiet otherwise, and stops the run when you say "stop the meeting".
+`skills/meeting-copilot/SKILL.md` teaches a coding agent to run a meeting: Claude Code, Codex, Cursor or any other agent with a shell. Say "copilot this meeting" or "let's start a copilot session" and it starts `copilot listen` in the background, opens `copilot tail` where you can watch it (or gives you the command), runs `wake` in a loop, answers "Claude, ..." questions in text, fact-checks, scopes ideas, stays quiet otherwise, and stops the run when you say "stop the meeting". Claude Code and Codex load it on their own in this repo.
 
-To use it from any project, link it into your personal skills:
+To use it from any project, install it for your agents:
 
 ```sh
-mkdir -p ~/.claude/skills
-ln -s "$PWD/.claude/skills/meeting-copilot" ~/.claude/skills/meeting-copilot
+npx skills add smithavt14/meeting-copilot
 ```
 
-(On Windows, copy the folder to `%USERPROFILE%\.claude\skills\meeting-copilot` instead.)
+That asks which agents to install it for. Or link it by hand, from the repo root:
+
+```sh
+mkdir -p ~/.claude/skills ~/.agents/skills
+ln -s "$PWD/skills/meeting-copilot" ~/.claude/skills/meeting-copilot   # Claude Code
+ln -s "$PWD/skills/meeting-copilot" ~/.agents/skills/meeting-copilot   # Codex and other agents
+```
+
+(On Windows, copy the folder into `%USERPROFILE%\.claude\skills\` or `%USERPROFILE%\.agents\skills\` instead.)
+
+The wake name defaults to "Claude". If you run it from another agent and would rather say its name, set `name = "Codex"` (or any name) in `copilot.toml`.
 
 ## Test without a meeting
 

@@ -44,12 +44,12 @@ Before anything else, tell the user that this records and transcribes everyone i
    ```
    Small wording differences are fine. Then `copilot say "Setup is done."` should speak and print `said with kokoro (...)`. On Windows, record any short WAV and use that instead of `make_sample.py`.
 7. **Settings (optional).** Put the user's settings (wake name, voice, transcription) in the per-user file, since the skill runs `copilot` from whatever directory the session is in: `~/Library/Application Support/meeting-copilot/copilot.toml` on macOS, `%APPDATA%\meeting-copilot\copilot.toml` on Windows. The keys are in the README's Settings section. A `./copilot.toml` is read on top of it, and flags win.
-8. **Install the skill** so it works from any project:
+8. **Install the skill** so it works from any project, for the agent you are (and any others the user names). From the repo root, link `skills/meeting-copilot` into that agent's skills folder:
    ```sh
-   mkdir -p ~/.claude/skills
-   ln -s "$PWD/.claude/skills/meeting-copilot" ~/.claude/skills/meeting-copilot
+   mkdir -p ~/.claude/skills && ln -s "$PWD/skills/meeting-copilot" ~/.claude/skills/meeting-copilot   # Claude Code
+   mkdir -p ~/.agents/skills && ln -s "$PWD/skills/meeting-copilot" ~/.agents/skills/meeting-copilot   # Codex
    ```
-   On Windows, copy the folder to `%USERPROFILE%\.claude\skills\meeting-copilot`.
+   For other agents, `npx skills add smithavt14/meeting-copilot` puts it where each one looks. On Windows, copy the folder instead of linking it. If the user wants to address you by another name than "Claude", set `name` in their `copilot.toml` (step 7).
 
 ## Run it
 
@@ -60,13 +60,13 @@ Before anything else, tell the user that this records and transcribes everyone i
 - Mute and unmute: `copilot mute`, `copilot unmute`. When the user types "mute", "unmute" or "resume" to you, run the matching command, confirm in one line and re-arm wake. They can also say "Claude, mute" and "Claude, unmute", and the listener handles that itself.
 - Stop: `copilot stop`.
 
-The skill in `.claude/skills/meeting-copilot/SKILL.md` runs this loop; follow it when the user says "copilot this meeting".
+The skill in `skills/meeting-copilot/SKILL.md` runs this loop; follow it when the user says "copilot this meeting".
 
 ## Working on this repo
 
 - `src/meeting_copilot/`: `cli.py` (commands and settings), `pipeline.py` (VAD cutting, drafts, the shared transcription slot), `vad.py`, `transcribe.py` (Parakeet, OpenRouter), `sources.py` (mic, Mac tap, Windows loopback, WAV file), `echo.py` (call and said echo), `names.py` (wake name, mute commands), `run.py` (the run file, its lock, the recorder), `wake.py`, `tail.py`, `voice.py` (`copilot say`), `models.py` (downloads).
 - `tap/`: the Swift process-tap binary. `scripts/build-tap.sh` builds it.
-- `.claude/skills/meeting-copilot/SKILL.md`: the skill.
+- `skills/meeting-copilot/SKILL.md`: the skill, for any agent. `.claude/skills/meeting-copilot` and `.agents/skills/meeting-copilot` are links to it, so Claude Code and Codex load it in this repo.
 - Tests: `uv run pytest`. Tests use synthetic audio and mocks; one end-to-end test uses macOS `say` and the downloaded models and skips without them. Never add real recordings or transcripts as fixtures.
 - Runs go to `$COPILOT_OUT`, else `--out`, else a per-user data directory (`~/Library/Application Support/meeting-copilot/out` on macOS, `%LOCALAPPDATA%\meeting-copilot\out` on Windows). Only one `listen` runs per directory. When testing next to a real run, always set `COPILOT_OUT` (or `--out`) to a scratch directory so you neither collide with it nor write into it. Models live in the user cache (`COPILOT_CACHE` overrides). The per-user settings file is `COPILOT_CONFIG` when set; tests point it at an empty temp path (`tests/conftest.py`) so they never read the real one.
 - After changing anything under `tap/`, run `scripts/build-tap.sh`.

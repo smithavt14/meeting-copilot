@@ -21,3 +21,8 @@ out/
 copilot.toml
 .env
 .DS_Store
+
+# sidecar review state
+*.sidecar.json
+*.sidecar.seen*
+*.sidecar.assets/
