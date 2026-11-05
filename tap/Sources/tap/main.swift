@@ -230,10 +230,44 @@ final class AppTap {
         guard rc == noErr else { throw Fail("AudioHardwareCreateAggregateDevice \(rc)") }
         aggID = agg
 
+        // A duplex output device (a USB headset, an audio interface) puts its own input buffers in the aggregate's
+        // list ahead of the tap's, so the list can be longer than the tap format expects. The tap's are the last ones.
+        let need = format.isInterleaved ? 1 : Int(format.channelCount)
+        let perBuffer = format.isInterleaved ? format.channelCount : 1
+        let bytesPerFrame = format.streamDescription.pointee.mBytesPerFrame
+        var skippedLogged = false
         var proc: AudioDeviceIOProcID?
         rc = AudioDeviceCreateIOProcIDWithBlock(&proc, agg, queue) { [weak self] _, input, _, _, _ in
-            guard let self, let buf = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: input, deallocator: nil),
-                  buf.frameLength > 0 else { return }
+            guard let self else { return }
+            let list = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+            guard list.count >= need, bytesPerFrame > 0 else { return }
+            let tapBuffers = Array(list[(list.count - need)...])
+            guard tapBuffers.allSatisfy({ $0.mNumberChannels == perBuffer && $0.mData != nil }) else {
+                if !skippedLogged {
+                    skippedLogged = true
+                    status("tap: unexpected buffer layout (\(list.count) buffers); skipping audio")
+                }
+                return
+            }
+            let buf: AVAudioPCMBuffer
+            if list.count == need {
+                guard let b = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: input, deallocator: nil) else { return }
+                buf = b
+            } else {
+                if !skippedLogged {
+                    skippedLogged = true
+                    status("tap: skipping \(list.count - need) input buffer(s) from the output device")
+                }
+                let frames = tapBuffers.map { $0.mDataByteSize / bytesPerFrame }.min() ?? 0
+                guard frames > 0, let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
+                b.frameLength = frames
+                let out = UnsafeMutableAudioBufferListPointer(b.mutableAudioBufferList)
+                for (i, src) in tapBuffers.enumerated() {
+                    memcpy(out[i].mData, src.mData, Int(frames * bytesPerFrame))
+                }
+                buf = b
+            }
+            guard buf.frameLength > 0 else { return }
             if !self.gotAudio {
                 self.gotAudio = true
                 status("audio arriving")

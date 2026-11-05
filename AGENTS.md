@@ -43,7 +43,8 @@ Before anything else, tell the user that this records and transcribes everyone i
    stopped: 6 lines, 18 drafts, 0 echo lines dropped
    ```
    Small wording differences are fine. Then `copilot say "Setup is done."` should speak and print `said with kokoro (...)`. On Windows, record any short WAV and use that instead of `make_sample.py`.
-7. **Install the skill** so it works from any project:
+7. **Settings (optional).** Put the user's settings (wake name, voice, transcription) in the per-user file, since the skill runs `copilot` from whatever directory the session is in: `~/Library/Application Support/meeting-copilot/copilot.toml` on macOS, `%APPDATA%\meeting-copilot\copilot.toml` on Windows. The keys are in the README's Settings section. A `./copilot.toml` is read on top of it, and flags win.
+8. **Install the skill** so it works from any project:
    ```sh
    mkdir -p ~/.claude/skills
    ln -s "$PWD/.claude/skills/meeting-copilot" ~/.claude/skills/meeting-copilot
@@ -67,5 +68,5 @@ The skill in `.claude/skills/meeting-copilot/SKILL.md` runs this loop; follow it
 - `tap/`: the Swift process-tap binary. `scripts/build-tap.sh` builds it.
 - `.claude/skills/meeting-copilot/SKILL.md`: the skill.
 - Tests: `uv run pytest`. Tests use synthetic audio and mocks; one end-to-end test uses macOS `say` and the downloaded models and skips without them. Never add real recordings or transcripts as fixtures.
-- Runs go to `$COPILOT_OUT`, else `--out`, else a per-user data directory (`~/Library/Application Support/meeting-copilot/out` on macOS, `%LOCALAPPDATA%\meeting-copilot\out` on Windows). Only one `listen` runs per directory. When testing next to a real run, always set `COPILOT_OUT` (or `--out`) to a scratch directory so you neither collide with it nor write into it. Models live in the user cache (`COPILOT_CACHE` overrides).
+- Runs go to `$COPILOT_OUT`, else `--out`, else a per-user data directory (`~/Library/Application Support/meeting-copilot/out` on macOS, `%LOCALAPPDATA%\meeting-copilot\out` on Windows). Only one `listen` runs per directory. When testing next to a real run, always set `COPILOT_OUT` (or `--out`) to a scratch directory so you neither collide with it nor write into it. Models live in the user cache (`COPILOT_CACHE` overrides). The per-user settings file is `COPILOT_CONFIG` when set; tests point it at an empty temp path (`tests/conftest.py`) so they never read the real one.
 - After changing anything under `tap/`, run `scripts/build-tap.sh`.

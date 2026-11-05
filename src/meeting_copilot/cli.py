@@ -42,19 +42,35 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def user_config() -> Path:
+    """The per-user settings file: COPILOT_CONFIG, else the platform's config directory."""
+    env = os.environ.get("COPILOT_CONFIG")
+    if env:
+        return Path(env)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "meeting-copilot" / "copilot.toml"
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "meeting-copilot" / "copilot.toml"
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "meeting-copilot" / "copilot.toml"
+
+
 def load_settings(path: str | None) -> dict:
-    """Defaults, then ``copilot.toml`` (``--config`` or the current directory), then flags."""
+    """Defaults, then the per-user ``copilot.toml``, then ``./copilot.toml`` (or ``--config``) on top, then flags.
+    The per-user file is what makes settings hold when the skill runs listen and say from any directory."""
     settings = dict(DEFAULTS)
-    p = Path(path) if path else Path("copilot.toml")
-    if p.exists():
+    local = Path(path) if path else Path("copilot.toml")
+    if path and not local.exists():
+        raise SystemExit(f"no settings file at {local}")
+    user = user_config()
+    for p in (user, local):
+        if not p.exists() or (p is local and user.exists() and p.resolve() == user.resolve()):
+            continue
         with open(p, "rb") as f:
             data = tomllib.load(f)
         unknown = sorted(set(data) - set(DEFAULTS))
         if unknown:
             log(f"{p}: ignoring unknown settings: {', '.join(unknown)}")
         settings.update({k: v for k, v in data.items() if k in DEFAULTS})
-    elif path:
-        raise SystemExit(f"no settings file at {p}")
     return settings
 
 
@@ -172,10 +188,17 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
             scheduler.muted_engine = LocalParakeet()
         else:
             scheduler.muted_max_s = 3.0
-    rec.on_mute = lambda muted: setattr(scheduler, "muted", muted)
+    streams: dict = {}
+
+    def on_mute(muted: bool) -> None:
+        scheduler.muted = muted
+        for st in streams.values():
+            st.mark_muted()  # an utterance open across the change is muted whole
+
+    rec.on_mute = on_mute
     handlers = Handlers(speech=rec.speech, speech_end=rec.speech_end, draft=rec.draft, final=rec.final,
                         empty=rec.empty, error=rec.error)
-    streams, pumps = {}, {}
+    pumps = {}
     for name in sources:
         streams[name] = Stream(name, SileroVAD(vad_model), scheduler, handlers, threshold=float(s["vad_threshold"]),
                                silence_s=s["silence_ms"] / 1000, pre_roll_s=s["pre_roll_ms"] / 1000,
@@ -363,7 +386,7 @@ def cmd_download(a: argparse.Namespace) -> int:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="copilot", description=__doc__)
-    p.add_argument("--config", help="settings file (default: ./copilot.toml if present)")
+    p.add_argument("--config", help="settings file, read over the per-user copilot.toml (default: ./copilot.toml if present)")
     p.add_argument("--out", help="where runs are written (default: $COPILOT_OUT, else a per-user data directory)")
     sub = p.add_subparsers(dest="cmd", required=True)
 

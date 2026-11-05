@@ -61,10 +61,11 @@ class Scheduler:
                 with self._gate:
                     self._running -= 1
 
-    def final(self, samples: np.ndarray) -> tuple[str, bool]:
-        """One utterance's final, and whether a draft was running when it came in (it then waited for it)."""
+    def final(self, samples: np.ndarray, muted: bool = False) -> tuple[str, bool]:
+        """One utterance's final, and whether a draft was running when it came in (it then waited for it).
+        ``muted``: the utterance overlapped a mute, so it takes the muted path even if the mute has since ended."""
         engine = None
-        if self.muted:
+        if self.muted or muted:
             if self.muted_engine is not None:
                 engine = self.muted_engine
             elif self.muted_max_s is not None and len(samples) > self.muted_max_s * RATE:
@@ -109,6 +110,7 @@ class Final:
     emit: float
     drafts: int
     behind_draft: bool
+    muted: bool = False  # the utterance overlapped a mute at some point
 
 
 @dataclass
@@ -138,6 +140,7 @@ class _Segment:
     samples: np.ndarray
     start_wall: float
     end_wall: float
+    muted: bool = False
 
 
 class Stream:
@@ -176,6 +179,7 @@ class Stream:
         self._draft_lock = threading.Lock()
         self._closed_utt = 0  # utterances through this id have ended: a draft that returns later is dropped
         self._draft_counts: dict[int, int] = {}
+        self._muted_utts: set[int] = set()  # utterances that overlapped a mute: no drafts, muted final, dropped
         self._draft_threads: list[threading.Thread] = []
 
         self._finals: queue.Queue[_Segment | None] = queue.Queue()
@@ -214,6 +218,9 @@ class Stream:
                 self.speech_start = start
                 self.last_voiced_end = end
                 self.utt += 1
+                if self.scheduler.muted:
+                    with self._draft_lock:
+                        self._muted_utts.add(self.utt)
                 self._last_draft_at = start
                 keep = int(self.pre_roll_s * RATE / CHUNK)
                 pre = self._ring[-keep:] if keep else []
@@ -239,16 +246,25 @@ class Stream:
             self._closed_utt = self.utt
         end_wall = self.wall(seg_end)
         self.h.speech_end(self.name, self.utt, end_wall)
-        seg = _Segment(self.utt, np.concatenate(self._utt_samples), self.wall(self.speech_start), end_wall)
+        with self._draft_lock:
+            muted = self.utt in self._muted_utts or self.scheduler.muted
+            self._muted_utts.discard(self.utt)
+        seg = _Segment(self.utt, np.concatenate(self._utt_samples), self.wall(self.speech_start), end_wall, muted)
         self._utt_samples = []
         if self.sync:
             self._finish(seg)
         else:
             self._finals.put(seg)
 
+    def mark_muted(self) -> None:
+        """Called on every mute and unmute: the utterance open now overlapped a mute, so all of it is muted."""
+        with self._draft_lock:
+            if self.in_speech:
+                self._muted_utts.add(self.utt)
+
     # Drafts
     def _maybe_draft(self) -> None:
-        if self.draft_s <= 0 or not self.in_speech:
+        if self.draft_s <= 0 or not self.in_speech or self.utt in self._muted_utts:
             return
         if self.pos - self._last_draft_at < self.draft_s or self.pos - self.last_voiced_end >= DRAFT_QUIET_S:
             return
@@ -271,7 +287,7 @@ class Stream:
             return
         now = self.clock()
         with self._draft_lock:
-            if utt <= self._closed_utt or not has_text(text):
+            if utt <= self._closed_utt or utt in self._muted_utts or not has_text(text):
                 return
             self._draft_counts[utt] = self._draft_counts.get(utt, 0) + 1
             self.h.draft(Draft(self.name, utt, text, start_wall, now, int(len(samples) / RATE * 1000), int((now - t0) * 1000)))
@@ -287,7 +303,7 @@ class Stream:
 
     def _finish(self, seg: _Segment) -> None:
         try:
-            text, behind = self.scheduler.final(seg.samples)
+            text, behind = self.scheduler.final(seg.samples, muted=seg.muted)
         except Exception as e:
             self.h.error(f"{self.name}: transcription failed: {e}")
             self.h.empty(self.name, seg.utt)
@@ -297,7 +313,8 @@ class Stream:
         if not has_text(text):
             self.h.empty(self.name, seg.utt)
             return
-        self.h.final(Final(self.name, seg.utt, text, seg.start_wall, seg.end_wall, self.clock(), drafts, behind))
+        self.h.final(Final(self.name, seg.utt, text, seg.start_wall, seg.end_wall, self.clock(), drafts, behind,
+                           seg.muted))
 
     def close(self) -> None:
         """End any open utterance, transcribe it, and wait for every final."""

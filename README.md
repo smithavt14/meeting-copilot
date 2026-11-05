@@ -116,7 +116,14 @@ Pass `seen` and `drafts` back as `--since` and `--drafts-since` next time. Start
 
 ### Settings
 
-Flags win; otherwise `copilot.toml` in the current directory (or `--config <file>`) sets any of:
+Settings come from up to two `copilot.toml` files. The per-user one applies wherever `copilot` runs, which is what you want when the skill starts `listen` and `say` from any project:
+
+- macOS: `~/Library/Application Support/meeting-copilot/copilot.toml`
+- Windows: `%APPDATA%\meeting-copilot\copilot.toml`
+- elsewhere: `~/.config/meeting-copilot/copilot.toml`
+- or the path in `COPILOT_CONFIG`
+
+A `copilot.toml` in the current directory (or `--config <file>`) is read on top of it, and flags win over both. Either file can set any of:
 
 ```toml
 name = "Claude"

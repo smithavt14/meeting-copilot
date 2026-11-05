@@ -7,8 +7,7 @@ It returns on the first of:
   has no final line yet (printed marked ``DRAFT``);
 - ``lines`` new final lines after ``since``;
 - the run's ``stop`` event, or the listener's process gone without one (``END``);
-- ``max_wait`` seconds (``TIMEOUT``).
-
+- ``max_wait`` seconds (``TIMEOUT``);
 - a ``mute`` or ``unmute`` event after ``mutes_since`` (``MUTE`` or ``UNMUTE``; the closing line then carries
   ``mutes=<m>``, the cursor for ``--mutes-since``).
 
@@ -55,20 +54,17 @@ def said_windows(events: list[dict[str, Any]]) -> SaidWindows:
 
 
 def in_said(e: dict[str, Any], said: SaidWindows) -> bool:
-    """- a ``mute`` or ``unmute`` event after ``mutes_since`` (``MUTE`` or ``UNMUTE``; the closing line then carries
-  ``mutes=<m>``, the cursor for ``--mutes-since``).
-
-A line or draft heard while ``copilot say`` played, or just after: it never wakes."""
+    """A line or draft heard while ``copilot say`` played, or just after: it never wakes."""
     t0 = parse_iso(e.get("start"))
     t1 = parse_iso(e.get("end")) or parse_iso(e.get("t")) or t0
     return t0 is not None and said.covers(t0, t1 or t0)
 
 
 def draft_hits(events: list[dict[str, Any]], drafts_since: int) -> list[dict[str, Any]]:
-    """The first named draft of each utterance, newer than ``drafts_since``, whose utterance has no final yet, and
-    that was not heard during a spoken answer."""
+    """The first named draft of each utterance, newer than ``drafts_since``, whose utterance has not ended yet (no
+    ``line``, ``empty`` or ``echo`` for it), and that was not heard during a spoken answer."""
     said = said_windows(events)
-    done = {(e.get("speaker"), e.get("utt")) for e in events if e.get("ev") == "line"}
+    done = {(e.get("speaker"), e.get("utt")) for e in events if e.get("ev") in ("line", "empty", "echo")}
     first: dict[tuple[Any, Any], dict[str, Any]] = {}
     for e in events:
         if e.get("ev") == "draft" and e.get("named"):

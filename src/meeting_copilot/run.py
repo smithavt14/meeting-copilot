@@ -251,6 +251,7 @@ class Recorder:
         self.drafts: list[dict] = []
         self.echoes: list[dict] = []
         self._draft_shown = False
+        self._drafted: set[tuple[str, int]] = set()  # utterances with a draft on disk
         self.said = SaidWindows()
         self._follow = Follower(self.path)
         self.muted = False
@@ -317,6 +318,7 @@ class Recorder:
             rec = self.emit("draft", d=self.d, speaker=d.stream, utt=d.utt, text=d.text, start=iso(d.start),
                             t=iso(d.emit), named=self.names(d.text), audio_ms=d.audio_ms, ms=d.ms)
             self.drafts.append(rec)
+            self._drafted.add((d.stream, d.utt))
             if self.tty:
                 sys.stdout.write(f"\r\033[K... {d.stream}: {d.text}")
                 sys.stdout.flush()
@@ -327,13 +329,18 @@ class Recorder:
             self.poll()
             cmd = self.names.command(f.text)
             if self.muted:
-                if f.stream == "call" and self.gate:
-                    self.gate.call_final(f.start, f.end, "")  # keep the stream bookkeeping, remember no words
+                self._settle_call(f, "")  # keep the stream bookkeeping, remember no words
+                self._void_drafts(f.stream, f.utt)
                 if cmd == "unmute":  # the command line is the one line written
                     self._write_line(f, force=True)
                     self.mute(False, by="voice")
                 return
+            if f.muted:  # overlapped a mute that has since ended: dropped whole
+                self._settle_call(f, "")
+                self._void_drafts(f.stream, f.utt)
+                return
             if cmd == "mute":
+                self._settle_call(f, f.text)  # releases mic lines held from before the mute
                 self._write_line(f)
                 self.mute(True, by="voice")
                 return
@@ -354,9 +361,24 @@ class Recorder:
                 released = self.gate.me_final({"final": f}, time.time())
             self._release(released)
 
+    def _settle_call(self, f: Final, text: str) -> None:
+        """Every call final has to reach the echo gate, or mic lines wait on it until the hold timeout."""
+        if f.stream == "call" and self.gate:
+            self._release(self.gate.call_final(f.start, f.end, text))
+
+    def _void_drafts(self, stream: str, utt: int) -> None:
+        """A dropped utterance whose drafts went out before a mute gets an ``empty`` (no words), so they stop waking."""
+        if (stream, utt) in self._drafted:
+            self._drafted.discard((stream, utt))
+            self.emit("empty", speaker=stream, utt=utt)
+
     def empty(self, stream: str, utt: int) -> None:
-        if not self.muted:
-            self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
+        with self._lock:
+            if not self.muted:
+                self._drafted.discard((stream, utt))
+                self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
+            else:
+                self._void_drafts(stream, utt)
         if stream == "call" and self.gate:
             with self._lock:
                 self._release(self.gate.call_final(0.0, 0.0, ""))
@@ -392,6 +414,7 @@ class Recorder:
     def _write_line(self, f: Final, force: bool = False) -> None:
         if self.muted and not force:
             return
+        self._drafted.discard((f.stream, f.utt))
         self.n += 1
         rec = self.emit("line", n=self.n, speaker=f.stream, text=f.text, start=iso(f.start), end=iso(f.end),
                         utt=f.utt, named=self.names(f.text), latency_ms=int((f.emit - f.end) * 1000),
