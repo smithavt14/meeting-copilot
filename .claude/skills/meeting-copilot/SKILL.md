@@ -28,7 +28,7 @@ description: Be a copilot in a live meeting or a spoken work session. Starts `co
    - **Decision, deadline or risk:** one line each.
    A batch with nothing that meets this bar gets no message.
 3. **Labels.** `me` is whoever is at this computer's microphone; `call` is everyone on the call. In a room, every voice the mic hears is `me`. Never name who said something unless the line itself does.
-4. **Mute.** A `MUTE` wake means the listener stopped writing (the user said "Claude, mute" or ran `copilot mute`): post one line, `Muted. Say "Claude, unmute" to resume.`, and keep re-arming. On `UNMUTE`, post `Listening again.` If the user types "mute" in this chat, run `copilot mute` and confirm in one line; for a spoken mute there is nothing to run, the listener already did it.
+4. **Mute.** A `MUTE` wake means the listener stopped writing (the user said "Claude, mute" or ran `copilot mute`): post one line, `Muted. Say "Claude, unmute" to resume.`, and keep re-arming. On `UNMUTE`, post `Listening again.` A message the user types in this chat that is just a mute or unmute command ("mute", "stop listening", "unmute", "resume", "start listening") is the command itself: run `copilot mute` or `copilot unmute` in the foreground, confirm in one line (`Muted.` or `Listening again.`), and re-arm wake. The wake that returns `MUTE` or `UNMUTE` for that same command needs no second confirmation. For a spoken mute or unmute there is nothing to run; the listener already did it.
 5. **Cost.** Each wake is a turn here. A 40-minute meeting is roughly 20 to 30 wakes.
 
 ## 3. Speaking

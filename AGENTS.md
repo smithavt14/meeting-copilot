@@ -56,7 +56,7 @@ Before anything else, tell the user that this records and transcribes everyone i
 - Give the user a live view: `copilot tail` in a terminal they can see. If you cannot open one, give them the exact command listen prints after `watch it live in another terminal:`.
 - Read along: `copilot wake --since 0 --drafts-since 0 --mutes-since 0`, then again with the `seen=`, `drafts=` and `mutes=` values from each output.
 - Speak, only when the user asks: `copilot say "<two or three sentences>"`, in the foreground, then re-arm wake.
-- Mute and unmute: `copilot mute`, `copilot unmute` (the user can also say "Claude, mute" and "Claude, unmute").
+- Mute and unmute: `copilot mute`, `copilot unmute`. When the user types "mute", "unmute" or "resume" to you, run the matching command, confirm in one line and re-arm wake. They can also say "Claude, mute" and "Claude, unmute", and the listener handles that itself.
 - Stop: `copilot stop`.
 
 The skill in `.claude/skills/meeting-copilot/SKILL.md` runs this loop; follow it when the user says "copilot this meeting".

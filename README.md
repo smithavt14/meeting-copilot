@@ -65,7 +65,7 @@ Each finished line prints as it lands (`[12 14:03:21] call: ...`), and the run's
 
 ### Mute
 
-Say "Claude, mute" (or "Claude, stop listening"), or run `copilot mute`, when you turn to something the session should not read. The listener keeps listening so it can hear "Claude, unmute" (also "resume" or "start listening", or `copilot unmute`), but it writes no lines and no drafts and wakes nobody; only the mute and unmute events and the two command lines reach the file. A misheard name counts ("Claw, mute"). In cloud mode, muted audio is transcribed on this machine when Parakeet is downloaded; otherwise only utterances under 3 seconds (long enough for "Claude, unmute") go to OpenRouter.
+Say "Claude, mute" (or "Claude, stop listening"), or run `copilot mute` (in a session with the skill, typing "mute" does the same, and "unmute" or "resume" undoes it), when you turn to something the session should not read. The listener keeps listening so it can hear "Claude, unmute" (also "resume" or "start listening", or `copilot unmute`), but it writes no lines and no drafts and wakes nobody; only the mute and unmute events and the two command lines reach the file. A misheard name counts ("Claw, mute"). In cloud mode, muted audio is transcribed on this machine when Parakeet is downloaded; otherwise only utterances under 3 seconds (long enough for "Claude, unmute") go to OpenRouter.
 
 ### Voice
 
