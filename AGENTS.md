@@ -16,11 +16,11 @@ Before anything else, tell the user that this records and transcribes everyone i
    uv tool install --python 3.12 --editable .
    ```
    If `copilot` is not found afterwards, run `uv tool update-shell` and open a new shell, or use `uv run copilot ...` from the repo.
-3. **Download the models** (about 850 MB in all, into the user cache directory):
+3. **Ask before downloading the models.** They take about 840 MB in the user cache directory: Parakeet (about 490 MB) for local transcription, Kokoro (about 350 MB) for the local voice, and the Silero VAD (2 MB). Ask the user whether they want them, or would rather use hosted models: `transcribe = "cloud"` with `OPENROUTER_API_KEY`, and `voice = "system"` (or ElevenLabs with `ELEVENLABS_API_KEY`), set in step 7. If they want the local models:
    ```sh
    copilot download
    ```
-   It ends with `models ready in <dir>`.
+   It ends with `models ready in <dir>`. If they choose hosted, skip it; the 2 MB VAD model downloads on the first `copilot listen`, and step 6's check needs `--transcribe cloud` and `copilot say --voice system`.
 4. **Build the tap (macOS only).**
    ```sh
    scripts/build-tap.sh

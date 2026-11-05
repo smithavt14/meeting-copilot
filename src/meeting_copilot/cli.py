@@ -75,7 +75,13 @@ def load_settings(path: str | None) -> dict:
 
 
 def matcher(s: dict) -> NameMatcher:
-    return NameMatcher(s["name"], list(s["variants"]), list(s["opening_variants"]))
+    """Claude's mishearings ("cloud", "claw", "call") only count for Claude: another name keeps the variants its
+    settings give it, or none."""
+    variants, opening = s["variants"], s["opening_variants"]
+    if s["name"].lower() != DEFAULT_NAME.lower():
+        variants = [] if variants is DEFAULT_VARIANTS else variants
+        opening = [] if opening is DEFAULT_OPENING_VARIANTS else opening
+    return NameMatcher(s["name"], list(variants), list(opening))
 
 
 # listen

@@ -38,3 +38,24 @@ def test_platform_paths(monkeypatch):
     monkeypatch.delenv("COPILOT_CONFIG")
     monkeypatch.setattr("sys.platform", "darwin")
     assert str(user_config()).endswith("Library/Application Support/meeting-copilot/copilot.toml")
+
+
+def test_custom_name_drops_claudes_mishearings(tmp_path, monkeypatch):
+    from meeting_copilot.cli import matcher
+    user = tmp_path / "user.toml"
+    user.write_text('name = "Jarvis"\n')
+    monkeypatch.setenv("COPILOT_CONFIG", str(user))
+    monkeypatch.chdir(tmp_path)
+    m = matcher(load_settings(None))
+    assert m("Jarvis, what time is it?")
+    assert not m("the cloud bill went up") and not m("call me later")
+    assert matcher({**load_settings(None), "name": "Claude"})("cloud, what time is it?")
+
+
+def test_custom_name_keeps_its_own_variants(tmp_path, monkeypatch):
+    from meeting_copilot.cli import matcher
+    user = tmp_path / "user.toml"
+    user.write_text('name = "Jarvis"\nvariants = ["jarvas"]\n')
+    monkeypatch.setenv("COPILOT_CONFIG", str(user))
+    monkeypatch.chdir(tmp_path)
+    assert matcher(load_settings(None))("jarvas, mute")

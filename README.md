@@ -1,12 +1,32 @@
-# copilot
+# clawd copilot
 
-A copilot for your Claude Code session. Yes, another copilot.
+<p align="center"><img src="assets/clawd.svg" alt="Clawd wearing headphones, listening" width="220"></p>
 
-**Recording consent comes first.** This tool records and transcribes everyone it hears. Tell the room, and the people on the call, before you start it. Many places (including several US states and much of Europe) require every party's consent to record a conversation; check the rules where you and the other people are.
+A copilot for your coding agent.
 
-It is a way to talk to your Claude Code session out loud while you work: in a design review, while walking through a change to a site, or in a meeting. You speak, Claude reads along and answers in its own chat when you say its name.
+copilot gives your coding agent a live transcript of what it hears: your mic and your call. An AI note-taker answers after the meeting. Your agent answers during it, in its own chat, or out loud if you ask.
 
-meeting-copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. A Claude Code session reads those lines with `copilot wake` and answers in text when someone says "Claude, ...", or out loud through `copilot say` when you ask it to. Nothing joins the call. It runs on macOS and Windows; the Windows path is untested so far.
+Use it in a design review, while you walk someone through a change to a site, or in any meeting. Say its name, and it picks up the question before you finish the sentence.
+
+For example:
+
+- "Clawd, what did we just agree to?"
+- "Clawd, make that button bigger."
+- "Clawd, have a sub-agent scope that build while we keep talking."
+
+## How to get started
+
+1. Tell your coding agent: "Set up github.com/smithavt14/meeting-copilot for me." It follows [AGENTS.md](AGENTS.md) and does the install.
+2. Pick a wake name. It is "Claude" by default. Tell your agent the name you want (Jarvis, Clawd, your agent's own name) and it saves it as `name` in your `copilot.toml`.
+3. On a Mac, click Allow when it asks for the microphone, and turn on system audio recording for your terminal. You click those two; the agent does the rest.
+4. Say "Let's start a copilot session."
+5. Tell the room, then talk. Start a sentence with your wake name whenever you want it.
+
+**Disk space:** the local models take about 840 MB (Parakeet 490 MB, Kokoro 350 MB, the Silero VAD 2 MB). To skip the big two, tell your agent to use hosted models: `transcribe = "cloud"` sends speech to OpenRouter with your `OPENROUTER_API_KEY`, and `voice = "system"` (or ElevenLabs with `ELEVENLABS_API_KEY`) speaks without Kokoro. Then only the 2 MB VAD model downloads.
+
+## How it works
+
+copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. Your agent reads those lines with `copilot wake` and answers in text when someone says "Claude, ...", or out loud through `copilot say` when you ask it to. Nothing joins the call. It runs on macOS and Windows; the Windows path is untested so far.
 
 ```
 mic ──────────────┐
@@ -14,10 +34,9 @@ mic ──────────────┐
 app or loopback ──┘
 ```
 
-## Install
+## Install by hand
 
 Coding agents setting this up for someone: follow [AGENTS.md](AGENTS.md).
-
 
 You need [uv](https://docs.astral.sh/uv/) and git. uv installs the pinned Python (3.12) by itself; the speech and VAD wheels are not built for the newest Python releases yet.
 
@@ -151,7 +170,7 @@ elevenlabs_model = "eleven_flash_v2_5"
 
 `skills/meeting-copilot/SKILL.md` teaches a coding agent to run a meeting: Claude Code, Codex, Cursor or any other agent with a shell. Say "copilot this meeting" or "let's start a copilot session" and it starts `copilot listen` in the background, opens `copilot tail` where you can watch it (or gives you the command), runs `wake` in a loop, answers "Claude, ..." questions in text, fact-checks, scopes ideas, stays quiet otherwise, and stops the run when you say "stop the meeting". Claude Code and Codex load it on their own in this repo.
 
-To use it from any project, install it for your agents:
+If your agent did the setup, the skill is already installed: AGENTS.md step 8 links it in for that agent. To install it yourself, or for more agents:
 
 ```sh
 npx skills add smithavt14/meeting-copilot
@@ -167,7 +186,7 @@ ln -s "$PWD/skills/meeting-copilot" ~/.agents/skills/meeting-copilot   # Codex a
 
 (On Windows, copy the folder into `%USERPROFILE%\.claude\skills\` or `%USERPROFILE%\.agents\skills\` instead.)
 
-The wake name defaults to "Claude". If you run it from another agent and would rather say its name, set `name = "Codex"` (or any name) in `copilot.toml`.
+The wake name defaults to "Claude". If you run it from another agent and would rather say its name, set `name = "Codex"` (or any name) in `copilot.toml`. The built-in mishearings ("cloud", "claw", "call") only count for "Claude"; give another name its own with `variants`.
 
 ## Test without a meeting
 
@@ -182,3 +201,7 @@ uv run pytest
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Hey, read this before you record
+
+**Get consent.** This tool records and transcribes everyone it hears. Tell the room, and the people on the call, before you start it. Many places (including several US states and much of Europe) require every party's consent to record a conversation; check the rules where you and the other people are.

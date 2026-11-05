@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 960 940" role="img" aria-label="Clawd wearing headphones, listening">
+<style>
+.cl-fig{animation:cl-bob 3s ease-in-out infinite alternate}
+.cl-lean{transform-box:view-box;transform-origin:512px 926px;animation:cl-lean 6s ease-in-out infinite}
+.cl-look{animation:cl-look 6s ease-in-out infinite}
+.cl-eye{transform-box:fill-box;transform-origin:50% 50%;animation:cl-blink 6s linear infinite}
+.cl-ant{transform-box:view-box;transform-origin:512px 262px;animation:cl-ant 6s ease-in-out infinite}
+.cl-arc{opacity:0;animation:cl-ping 2s ease-out infinite}
+.cl-arc.b{animation-delay:.35s}
+@keyframes cl-bob{from{transform:translateY(0)}to{transform:translateY(-14px)}}
+@keyframes cl-lean{0%,22%{transform:rotate(0)}32%,52%{transform:rotate(-5deg)}62%,100%{transform:rotate(0)}}
+@keyframes cl-look{0%,24%{transform:translateX(0)}32%,52%{transform:translateX(-16px)}60%,100%{transform:translateX(0)}}
+@keyframes cl-blink{0%,12%,15%,72%,75%,100%{transform:scaleY(1)}13.5%,73.5%{transform:scaleY(.1)}}
+@keyframes cl-ant{0%,30%{transform:rotate(0)}34%{transform:rotate(9deg)}38%{transform:rotate(-6deg)}42%{transform:rotate(3deg)}46%,100%{transform:rotate(0)}}
+@keyframes cl-ping{0%{opacity:0}20%{opacity:1}70%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cl-fig,.cl-lean,.cl-look,.cl-eye,.cl-ant,.cl-arc{animation:none}.cl-arc{opacity:0}}
+</style>
+<defs>
+  <g id="cl-geo">
+    <rect x="88" y="652" width="128" height="88" rx="6"/>
+    <rect x="808" y="652" width="128" height="88" rx="6"/>
+    <rect x="266" y="790" width="74" height="136" rx="4"/>
+    <rect x="404" y="790" width="74" height="136" rx="4"/>
+    <rect x="542" y="790" width="74" height="136" rx="4"/>
+    <rect x="680" y="790" width="74" height="136" rx="4"/>
+    <rect x="210" y="462" width="600" height="340" rx="6"/>
+  </g>
+  <path id="cl-band" d="M210 450 C 210 320, 350 262, 512 262 C 674 262, 814 320, 814 450"/>
+  <g id="cl-cups">
+    <rect x="150" y="420" width="120" height="230" rx="56"/>
+    <rect x="754" y="420" width="120" height="230" rx="56"/>
+  </g>
+</defs>
+<g class="cl-lean">
+  <g transform="translate(18 18)" fill="#15171c" stroke="#15171c" stroke-width="12" stroke-linejoin="round">
+    <use href="#cl-geo"/>
+    <use href="#cl-band" fill="none" stroke-width="50" stroke-linecap="round"/>
+    <use href="#cl-cups"/>
+  </g>
+</g>
+<g class="cl-fig"><g class="cl-lean">
+  <g fill="#f07c3a" stroke="#15171c" stroke-width="12" stroke-linejoin="round"><use href="#cl-geo"/></g>
+  <g class="cl-look" fill="#15171c">
+    <rect class="cl-eye" x="446" y="558" width="34" height="128" rx="17"/>
+    <rect class="cl-eye" x="576" y="558" width="34" height="128" rx="17"/>
+  </g>
+  <g class="cl-ant">
+    <line x1="512" y1="184" x2="512" y2="262" stroke="#15171c" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="512" cy="154" r="30" fill="#ffffff" stroke="#15171c" stroke-width="12"/>
+    <g fill="none" stroke="#15171c" stroke-width="12" stroke-linecap="round">
+      <path class="cl-arc" d="M466 118 A 58 58 0 0 0 466 190"/>
+      <path class="cl-arc" d="M558 118 A 58 58 0 0 1 558 190"/>
+      <path class="cl-arc b" d="M434 90 A 100 100 0 0 0 434 218"/>
+      <path class="cl-arc b" d="M590 90 A 100 100 0 0 1 590 218"/>
+    </g>
+  </g>
+  <use href="#cl-band" fill="none" stroke="#15171c" stroke-width="50" stroke-linecap="round"/>
+  <use href="#cl-band" fill="none" stroke="#ffffff" stroke-width="26" stroke-linecap="round"/>
+  <g fill="#ffffff" stroke="#15171c" stroke-width="12"><use href="#cl-cups"/></g>
+</g></g>
+</svg>
