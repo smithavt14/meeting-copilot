@@ -34,3 +34,7 @@ def test_not_a_command(text):
 ])
 def test_command_phrases_from_the_live_test(text, want):
     assert NameMatcher().command(text) == want
+
+
+def test_all_right_leader():
+    assert NameMatcher().command("All right, Claud. Mute now.") == "mute"

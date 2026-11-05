@@ -10,7 +10,7 @@ DEFAULT_VARIANTS = ["cloud", "clod", "claud", "clawed", "claw", "clog", "claudia
 DEFAULT_OPENING_VARIANTS = ["call"]
 
 # Words that may come before the name when it opens a line ("hey Claude", "okay so Claude").
-LEADERS = {"hey", "hi", "hello", "ok", "okay", "yo", "so", "and", "um", "uh", "oh", "alright", "right", "well",
+LEADERS = {"all", "hey", "hi", "hello", "ok", "okay", "yo", "so", "and", "um", "uh", "oh", "alright", "right", "well",
            "quick", "question", "sorry", "actually"}
 
 WORD = re.compile(r"[a-z0-9']+")
