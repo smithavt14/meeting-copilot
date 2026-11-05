@@ -4,7 +4,7 @@
 
 It is a way to talk to your Claude Code session out loud while you work: in a design review, while walking through a change to a site, or in a meeting. You speak, Claude reads along and answers in its own chat when you say its name.
 
-meeting-copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. A Claude Code session reads those lines with `copilot wake` and answers in text when someone says "Claude, ...". Nothing joins the call and nothing speaks. It runs on macOS and Windows; the Windows path is untested so far.
+meeting-copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. A Claude Code session reads those lines with `copilot wake` and answers in text when someone says "Claude, ...", or out loud through `copilot say` when you ask it to. Nothing joins the call. It runs on macOS and Windows; the Windows path is untested so far.
 
 ```
 mic ──────────────┐
@@ -13,6 +13,9 @@ app or loopback ──┘
 ```
 
 ## Install
+
+Coding agents setting this up for someone: follow [AGENTS.md](AGENTS.md).
+
 
 You need [uv](https://docs.astral.sh/uv/) and git. uv installs the pinned Python (3.12) by itself; the speech and VAD wheels are not built for the newest Python releases yet.
 
@@ -23,7 +26,7 @@ uv tool install --python 3.12 --editable .
 copilot download
 ```
 
-`uv tool install` puts `copilot` in `~/.local/bin` (run `uv tool update-shell` once if that is not on your PATH). `copilot download` fetches the Silero VAD model (2 MB) and Parakeet TDT v3 (about 490 MB) into your user cache directory; without it, the first `copilot listen` does the same. If you would rather not install the command, run `uv sync` and use `uv run copilot ...` from the repo.
+`uv tool install` puts `copilot` in `~/.local/bin` (run `uv tool update-shell` once if that is not on your PATH). `copilot download` fetches the Silero VAD model (2 MB), Parakeet TDT v3 (about 490 MB) and Kokoro (about 350 MB, for `copilot say`) into your user cache directory; without it, the first `copilot listen` or `copilot say` fetches what it needs. If you would rather not install the command, run `uv sync` and use `uv run copilot ...` from the repo.
 
 ### macOS: the call's audio
 
@@ -51,12 +54,28 @@ copilot listen --app "Google Chrome"   # macOS: your mic plus Chrome's audio (Go
 copilot listen --loopback              # Windows: your mic plus everything the speakers play
 copilot listen                         # in person: the mic only
 copilot tail                           # in another terminal: watch the lines land, with the open drafts underneath
+copilot say "Two hundred and twelve."  # speak an answer aloud (the skill runs this when you ask)
+copilot mute                           # stop writing lines until "Claude, unmute" or copilot unmute
 copilot stop                           # from any other shell: stop the running listen cleanly (or Ctrl-C)
 ```
 
 Each finished line prints as it lands (`[12 14:03:21] call: ...`), and the run's directory is printed at the start. `copilot tail` follows the current run from any terminal: final lines as `[12] call: ...`, and on a terminal the open drafts on one line underneath, speakers in two colours and drafts dimmed (set `NO_COLOR` to turn colour off). It exits when the run stops. Other flags: `--no-mic`, `--mic-device <name or index>`, `--name <wake name>`, `--transcribe local|cloud`, `--draft-ms <ms>`. `copilot listen --help` lists them all.
 
 **Wear headphones.** On laptop speakers the mic hears the call, and call lines come back as `me` lines. A backstop drops a `me` line that mostly repeats a `call` line from the last few seconds, but some will slip through.
+
+### Mute
+
+Say "Claude, mute" (or "Claude, stop listening"), or run `copilot mute`, when you turn to something the session should not read. The listener keeps listening so it can hear "Claude, unmute" (also "resume" or "start listening", or `copilot unmute`), but it writes no lines and no drafts and wakes nobody; only the mute and unmute events and the two command lines reach the file. A misheard name counts ("Claw, mute"). In cloud mode, muted audio is transcribed on this machine when Parakeet is downloaded; otherwise only utterances under 3 seconds (long enough for "Claude, unmute") go to OpenRouter.
+
+### Voice
+
+`copilot say "<text>"` (or text on stdin) speaks through the first engine that works:
+
+- `elevenlabs`, when `ELEVENLABS_API_KEY` is set: the streaming text-to-speech API, model `eleven_flash_v2_5`, voice `JBFqnCBsd6RMkjVDRZzb` (settings `elevenlabs_model`, `elevenlabs_voice`). Text goes to ElevenLabs.
+- `kokoro`: Kokoro-82M on the CPU through kokoro-onnx, voice `af_heart` (`kokoro_voice`, `voice_speed`). The model (about 350 MB) downloads on first use or with `copilot download`.
+- `system`: `say` on macOS, System.Speech on Windows.
+
+`voice = "kokoro"` in `copilot.toml` or `--voice kokoro` picks one (it still falls back down the list). Each `say` marks the answer in the run's file, and any `me` line or draft that repeats its words while it plays or up to 4 seconds after is dropped as echo, by the same rule as call echo. Nothing heard in that window wakes the copilot. Headphones avoid the echo entirely.
 
 ### Transcription: local or cloud
 
@@ -76,7 +95,7 @@ Each run writes `<out>/<YYYY-MM-DD_HHMMSS>/lines.jsonl`, where `<out>` is `--out
 {"ev": "draft", "d": 31, "speaker": "me", "utt": 9, "text": "so the next step", "start": "2026-11-05T14:03:26.100-05:00", "named": false}
 ```
 
-There are also `start`, `echo` (a dropped speaker-echo line), `empty` (an utterance with no words), `error` and `stop` events.
+There are also `start`, `echo` (a dropped speaker-echo line), `said` (what `copilot say` played, and when), `mute` and `unmute`, `empty` (an utterance with no words), `error` and `stop` events.
 
 ### wake
 
@@ -89,6 +108,7 @@ Blocks until one of these, then prints the new lines and `--- seen=<n> drafts=<d
 - a final line says the name (`CALL`);
 - a draft says the name: the first draft of an utterance with no final yet (`DRAFT`);
 - 8 new lines (`--lines`);
+- a mute or unmute (`MUTE`, `UNMUTE`; pass `mutes=` back as `--mutes-since`);
 - the run stops, or its listener process is gone (`END`);
 - 10 minutes pass (`TIMEOUT`, `--max-wait` in seconds).
 
@@ -111,6 +131,11 @@ pre_roll_ms = 300
 vad_threshold = 0.5
 wake_lines = 8
 max_wait_s = 600
+voice = "auto"                # or "elevenlabs", "kokoro", "system"
+kokoro_voice = "af_heart"
+voice_speed = 1.0
+elevenlabs_voice = "JBFqnCBsd6RMkjVDRZzb"
+elevenlabs_model = "eleven_flash_v2_5"
 ```
 
 ## The Claude Code skill

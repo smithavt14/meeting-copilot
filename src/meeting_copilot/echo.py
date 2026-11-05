@@ -105,3 +105,55 @@ class EchoGate:
         out = [line for _, line in self._held]
         self._held = []
         return out
+
+
+SAID_AFTER_S = 4.0  # the room can still be echoing an answer this long after playback ends
+SAID_MAX_S = 120.0  # a said window whose end never arrived is closed this long after it opened
+
+
+class SaidWindows:
+    """What ``copilot say`` played, and when. A heard line or draft inside a window that repeats its words is echo
+    of the answer, by the same matching as the call-line rule."""
+
+    def __init__(self, threshold: float = 0.7, after_s: float = SAID_AFTER_S) -> None:
+        self.threshold = threshold
+        self.after_s = after_s
+        self._said: dict[str, list] = {}  # id -> [start, end or None, words]
+
+    def add(self, said_id: str, text: str, start: float, end: float | None = None) -> None:
+        cur = self._said.get(said_id)
+        if cur is None:
+            self._said[said_id] = [start, end, tokens(text)]
+        elif end is not None:
+            cur[1] = end
+
+    def event(self, e: dict, parse) -> None:
+        start = parse(e.get("start"))
+        if start is not None:
+            self.add(str(e.get("id")), str(e.get("text", "")), start, parse(e.get("end")))
+
+    def _window(self, start: float, end: float | None) -> tuple[float, float]:
+        return start, (end + self.after_s) if end is not None else start + SAID_MAX_S
+
+    def covers(self, t0: float, t1: float) -> bool:
+        """Whether [t0, t1] overlaps any said window."""
+        return any(self._overlap(t0, t1, *self._window(s, e)) for s, e, _ in self._said.values())
+
+    @staticmethod
+    def _overlap(a0: float, a1: float, b0: float, b1: float) -> bool:
+        return a0 <= b1 and a1 >= b0
+
+    def is_echo(self, text: str, t0: float, t1: float) -> tuple[bool, float]:
+        heard = tokens(text)
+        if not heard:
+            return False, 0.0
+        best = 0.0
+        for s, e, words in self._said.values():
+            if not self._overlap(t0, t1, *self._window(s, e)):
+                continue
+            if len(heard) < SHORT:
+                if contains_run(heard, words):
+                    return True, 1.0
+                continue
+            best = max(best, match_ratio(heard, words))
+        return best >= self.threshold, best

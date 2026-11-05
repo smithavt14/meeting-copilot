@@ -30,6 +30,11 @@ DEFAULTS = {
     "vad_threshold": 0.5,
     "wake_lines": 8,
     "max_wait_s": 600,
+    "voice": "auto",
+    "kokoro_voice": "af_heart",
+    "voice_speed": 1.0,
+    "elevenlabs_voice": "JBFqnCBsd6RMkjVDRZzb",
+    "elevenlabs_model": "eleven_flash_v2_5",
 }
 
 
@@ -157,6 +162,17 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
     rec = runmod.Recorder(run_dir, names, echo={"me", "call"} <= set(sources), status=log,
                           tty=sys.stdout.isatty())
     scheduler = Scheduler(engine)
+    if s["transcribe"] == "cloud":
+        # Muted audio stays on this machine when Parakeet is installed; otherwise only short utterances go out.
+        from meeting_copilot.models import PARAKEET_FILES, PARAKEET_NAME, cache_dir
+
+        if all((cache_dir() / PARAKEET_NAME / f).exists() for f in PARAKEET_FILES):
+            from meeting_copilot.transcribe import LocalParakeet
+
+            scheduler.muted_engine = LocalParakeet()
+        else:
+            scheduler.muted_max_s = 3.0
+    rec.on_mute = lambda muted: setattr(scheduler, "muted", muted)
     handlers = Handlers(speech=rec.speech, speech_end=rec.speech_end, draft=rec.draft, final=rec.final,
                         empty=rec.empty, error=rec.error)
     streams, pumps = {}, {}
@@ -238,7 +254,7 @@ def cmd_wake(a: argparse.Namespace) -> int:
     out = Path(a.out) if a.out else runmod.default_out()
     run_dir = Path(a.run) if a.run else runmod.find_run(out)
     return wake(run_dir, a.since, a.drafts_since, lines=a.lines or int(s["wake_lines"]),
-                max_wait=a.max_wait if a.max_wait is not None else float(s["max_wait_s"]))
+                max_wait=a.max_wait if a.max_wait is not None else float(s["max_wait_s"]), mutes_since=a.mutes_since)
 
 
 def cmd_stop(a: argparse.Namespace) -> int:
@@ -273,11 +289,74 @@ def cmd_tail(a: argparse.Namespace) -> int:
         return 0
 
 
+def live_run(out: Path) -> Path | None:
+    """The running listen's directory, without waiting; None when nothing is listening."""
+    cur = runmod.read_current(out)
+    if cur and cur.get("dir") and runmod.pid_alive(int(cur.get("pid") or 0)):
+        d = Path(cur["dir"])
+        return d if (d / runmod.LINES).exists() else None
+    return None
+
+
+def cmd_say(a: argparse.Namespace) -> int:
+    import uuid
+
+    from meeting_copilot import voice
+
+    text = " ".join(a.text).strip() if a.text else sys.stdin.read().strip()
+    if not text:
+        log("nothing to say: pass the text, or pipe it in")
+        return 1
+    s = load_settings(a.config)
+    try:
+        choice = a.voice or s["voice"]
+        engines = voice.order(choice)
+    except ValueError as e:
+        log(str(e))
+        return 1
+    out = Path(a.out) if a.out else runmod.default_out()
+    run_dir = live_run(out)
+    lines = run_dir / runmod.LINES if run_dir else None
+    said_id = uuid.uuid4().hex[:8]
+    started: dict = {}
+
+    def on_start(engine: str, t: float) -> None:
+        started["t"] = t
+        if lines:
+            runmod.append_event(lines, "said", id=said_id, phase="start", text=text, start=runmod.iso(t), engine=engine)
+
+    try:
+        result = voice.speak(text, engines, voice.factories(s), voice.Player(), on_start=on_start, log=log,
+                             explicit=choice not in (None, "", "auto"))
+    except Exception as e:
+        log(f"cannot speak: {e}")
+        return 1
+    finally:
+        if lines and "t" in started:
+            runmod.append_event(lines, "said", id=said_id, phase="end", text=text, start=runmod.iso(started["t"]),
+                                end=runmod.iso(time.time()))
+    log(f"said with {result['engine']} (first audio after {result['first_audio_ms']} ms)")
+    return 0
+
+
+def cmd_mute(a: argparse.Namespace) -> int:
+    out = Path(a.out) if a.out else runmod.default_out()
+    run_dir = live_run(out)
+    if run_dir is None:
+        log("no run is going")
+        return 1
+    ev = "mute" if a.cmd == "mute" else "unmute"
+    runmod.append_event(run_dir / runmod.LINES, ev, by="command", t=runmod.iso(time.time()))
+    print("muted" if ev == "mute" else "unmuted")
+    return 0
+
+
 def cmd_download(a: argparse.Namespace) -> int:
-    from meeting_copilot.models import cache_dir, parakeet_dir, silero_path
+    from meeting_copilot.models import cache_dir, kokoro_paths, parakeet_dir, silero_path
 
     silero_path(log)
     parakeet_dir(log)
+    kokoro_paths(log)
     print(f"models ready in {cache_dir()}")
     return 0
 
@@ -307,6 +386,7 @@ def parser() -> argparse.ArgumentParser:
     wk = sub.add_parser("wake", help="wait for the next batch of lines for the copilot session")
     wk.add_argument("--since", type=int, default=0, help="the last line already read (seen= from the last wake)")
     wk.add_argument("--drafts-since", dest="drafts_since", type=int, help="the last draft already read (drafts=)")
+    wk.add_argument("--mutes-since", dest="mutes_since", type=int, help="mute events already read (mutes=)")
     wk.add_argument("--lines", type=int, help="return after this many new lines (default 8)")
     wk.add_argument("--max-wait", dest="max_wait", type=float, help="return after this many seconds (default 600)")
     wk.add_argument("--run", help="a run directory (default: the current or newest run)")
@@ -317,10 +397,21 @@ def parser() -> argparse.ArgumentParser:
     tl.add_argument("--run", help="a run directory (default: the current or newest run)")
     tl.set_defaults(func=cmd_tail)
 
+    sy = sub.add_parser("say", help="speak a short answer aloud (and mark it so the mic's copy is dropped)")
+    sy.add_argument("text", nargs="*", help="what to say (default: read from stdin)")
+    sy.add_argument("--voice", choices=["auto", "elevenlabs", "kokoro", "system"],
+                    help="voice engine (default auto: elevenlabs with a key, else kokoro, else system)")
+    sy.set_defaults(func=cmd_say)
+
+    mu = sub.add_parser("mute", help="stop writing lines until unmute (it keeps listening for \"Claude, unmute\")")
+    mu.set_defaults(func=cmd_mute)
+    um = sub.add_parser("unmute", help="start writing lines again")
+    um.set_defaults(func=cmd_mute)
+
     st = sub.add_parser("stop", help="stop the running listen cleanly")
     st.set_defaults(func=cmd_stop)
 
-    dl = sub.add_parser("download", help="fetch the VAD and Parakeet models now instead of on first listen")
+    dl = sub.add_parser("download", help="fetch the VAD, Parakeet and Kokoro models now instead of on first use")
     dl.set_defaults(func=cmd_download)
     return p
 

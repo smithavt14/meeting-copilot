@@ -73,3 +73,17 @@ def parakeet_dir(log=lambda s: print(s, file=sys.stderr)) -> Path:
     if missing:
         raise RuntimeError(f"model download is missing {', '.join(missing)}")
     return model
+
+
+KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+KOKORO_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
+
+
+def kokoro_paths(log=lambda s: print(s, file=sys.stderr)) -> tuple[Path, Path]:
+    """Kokoro-82M (ONNX) and its voices file, downloaded on first use."""
+    d = cache_dir() / "kokoro-v1.0"
+    d.mkdir(exist_ok=True)
+    for name in KOKORO_FILES:
+        if not (d / name).exists():
+            _fetch(f"{KOKORO_BASE}/{name}", d / name, log)
+    return d / KOKORO_FILES[0], d / KOKORO_FILES[1]

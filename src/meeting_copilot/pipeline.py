@@ -40,8 +40,14 @@ class Scheduler:
         self.draft_busy = False
         self.max_concurrent = 0  # for tests: the most calls seen running at once
         self._running = 0
+        # While muted, finals still run (the listener has to hear "unmute") but drafts do not. With a cloud engine,
+        # ``muted_engine`` (local Parakeet, when installed) takes the muted finals; without one, only utterances up
+        # to ``muted_max_s`` are sent.
+        self.muted = False
+        self.muted_engine: Engine | None = None
+        self.muted_max_s: float | None = None
 
-    def _run(self, samples: np.ndarray) -> str:
+    def _run(self, samples: np.ndarray, engine: Engine | None = None) -> str:
         audio = samples.astype(np.float32)
         if len(audio) < int(MIN_CALL_S * RATE):
             audio = np.concatenate([audio, np.zeros(int(MIN_CALL_S * RATE) - len(audio), dtype=np.float32)])
@@ -50,18 +56,24 @@ class Scheduler:
                 self._running += 1
                 self.max_concurrent = max(self.max_concurrent, self._running)
             try:
-                return self.engine(audio).strip()
+                return (engine or self.engine)(audio).strip()
             finally:
                 with self._gate:
                     self._running -= 1
 
     def final(self, samples: np.ndarray) -> tuple[str, bool]:
         """One utterance's final, and whether a draft was running when it came in (it then waited for it)."""
+        engine = None
+        if self.muted:
+            if self.muted_engine is not None:
+                engine = self.muted_engine
+            elif self.muted_max_s is not None and len(samples) > self.muted_max_s * RATE:
+                return "", False  # too long to be "Claude, unmute"; not sent
         with self._gate:
             self.finals_waiting += 1
             behind = self.draft_busy
         try:
-            return self._run(samples), behind
+            return self._run(samples, engine), behind
         finally:
             with self._gate:
                 self.finals_waiting -= 1
@@ -69,7 +81,7 @@ class Scheduler:
     def claim_draft(self) -> bool:
         """Takes the one draft slot: False while a final waits or another draft runs (try again later)."""
         with self._gate:
-            if self.finals_waiting > 0 or self.draft_busy:
+            if self.muted or self.finals_waiting > 0 or self.draft_busy:
                 return False
             self.draft_busy = True
             return True

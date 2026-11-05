@@ -36,3 +36,27 @@ class NameMatcher:
         while i < len(toks) and i < 4 and toks[i] in LEADERS:
             i += 1
         return i < len(toks) and toks[i] in self.opening
+
+    def command(self, text: str) -> str | None:
+        """"mute" or "unmute" when the whole line is the name plus that command ("hey Claude, mute", "Claw mute",
+        "Claude, stop listening", "Claude unmute", "Claude, resume"), else None."""
+        toks = words(text)
+        i = 0
+        while i < len(toks) and toks[i] in LEADERS:
+            i += 1
+        rest = toks[i:]
+        if not rest:
+            return None
+        head = rest[0]
+        if not (head in self.anywhere or head in self.opening):
+            return None
+        tail = tuple(w for w in rest[1:] if w not in FILLER)
+        return COMMANDS.get(tail)
+
+
+FILLER = {"please", "now", "for", "a", "bit", "second", "minute", "thanks"}
+COMMANDS = {
+    ("mute",): "mute", ("mute", "yourself"): "mute", ("stop", "listening"): "mute", ("go", "quiet"): "mute",
+    ("unmute",): "unmute", ("un", "mute"): "unmute", ("resume",): "unmute", ("start", "listening"): "unmute",
+    ("keep", "listening"): "unmute", ("you", "can", "listen"): "unmute",
+}

@@ -1,11 +1,11 @@
 ---
 name: meeting-copilot
-description: Be a silent copilot in a live meeting. Starts `copilot listen` on the mic and the call's audio, reads the transcript as it arrives through `copilot wake`, answers questions addressed to "Claude" in text, fact-checks claims, scopes ideas with subagents, and stays quiet otherwise. Stops the run when asked. Fires on "copilot this meeting", "listen to this call", "start the meeting copilot", "stop the meeting".
+description: Be a copilot in a live meeting or a spoken work session. Starts `copilot listen` on the mic and the call's audio, reads the transcript as it arrives through `copilot wake`, answers questions addressed to "Claude" in text (aloud with `copilot say` only when asked), fact-checks claims, scopes ideas with subagents, and stays quiet otherwise. Mutes and stops when asked. Fires on "copilot this meeting", "listen to this call", "start the meeting copilot", "stop the meeting".
 ---
 
 # Meeting copilot
 
-`copilot listen` writes every finished utterance of the meeting as a numbered line, labelled `me` (the microphone) or `call` (the computer's audio). This session reads those lines with `copilot wake` and writes in its own chat. Nothing is spoken and nothing joins the call. If `copilot` is not on the PATH, run each command below as `uv run --project <path to the meeting-copilot repo> copilot ...`.
+`copilot listen` writes every finished utterance of the meeting as a numbered line, labelled `me` (the microphone) or `call` (the computer's audio). This session reads those lines with `copilot wake` and writes in its own chat. Nothing joins the call, and nothing is spoken unless the user asks (section 3). If `copilot` is not on the PATH, run each command below as `uv run --project <path to the meeting-copilot repo> copilot ...`.
 
 ## 1. Start
 
@@ -19,7 +19,7 @@ description: Be a silent copilot in a live meeting. Starts `copilot listen` on t
 
 ## 2. During
 
-1. **The loop.** Run `copilot wake --since <n> --drafts-since <d>` with `run_in_background: true`, both starting at 0. It returns when a line says the name (`CALL`), when a draft of a line still being spoken says the name (`DRAFT`), after a batch of new lines, when the run stops (`END`), or after a timeout (`TIMEOUT`). Its output is the new lines, then `--- seen=<n> drafts=<d>` with the markers. Read the lines, act, and run it again with the new `seen` and `drafts`. Every wake ends by re-arming, until `END`.
+1. **The loop.** Run `copilot wake --since <n> --drafts-since <d> --mutes-since <m>` with `run_in_background: true`, all starting at 0. It returns when a line says the name (`CALL`), when a draft of a line still being spoken says the name (`DRAFT`), after a batch of new lines, on a mute or unmute (`MUTE`, `UNMUTE`), when the run stops (`END`), or after a timeout (`TIMEOUT`). Its output is the new lines, then `--- seen=<n> drafts=<d>` (plus ` mutes=<m>` once there has been one) with the markers. Read the lines, act, and run it again with the new `seen`, `drafts` and `mutes`. Every wake ends by re-arming, until `END`.
    - **A `DRAFT` wake** is a question still being asked. Start on it: the search, the files, the first sentence of the answer. Post the answer once the final line arrives (usually the next wake, marked `CALL`), and answer the final's wording. A draft that names Claude but asks nothing gets no note. Quote only final lines.
 2. **Silence is the default.** Post only for one of these, each as a short note headed with the line numbers it draws on (`[41]`):
    - **Call:** a `CALL` line asks Claude something. Answer it first, in a few sentences.
@@ -28,8 +28,17 @@ description: Be a silent copilot in a live meeting. Starts `copilot listen` on t
    - **Decision, deadline or risk:** one line each.
    A batch with nothing that meets this bar gets no message.
 3. **Labels.** `me` is whoever is at this computer's microphone; `call` is everyone on the call. In a room, every voice the mic hears is `me`. Never name who said something unless the line itself does.
-4. **Cost.** Each wake is a turn here. A 40-minute meeting is roughly 20 to 30 wakes.
+4. **Mute.** A `MUTE` wake means the listener stopped writing (the user said "Claude, mute" or ran `copilot mute`): post one line, `Muted. Say "Claude, unmute" to resume.`, and keep re-arming. On `UNMUTE`, post `Listening again.` If the user types "mute" in this chat, run `copilot mute` and confirm in one line; for a spoken mute there is nothing to run, the listener already did it.
+5. **Cost.** Each wake is a turn here. A 40-minute meeting is roughly 20 to 30 wakes.
 
-## 3. Stop
+## 3. Speaking
+
+Answer in text by default. Speak only when the user asks on that question ("say it out loud", "answer out loud", "speak your answer") or has turned on speaking for the session ("speak your answers from now on", until they turn it off).
+
+- The spoken answer is two or three plain sentences, no lists or markup. The full answer still goes in the chat.
+- Run `copilot say "<the spoken answer>"` in the foreground (not in the background), then re-arm wake. Lines heard while it plays are dropped as echo and never wake you.
+- If it prints `cannot speak`, say so in the chat once and keep answering in text.
+
+## 4. Stop
 
 On "stop the meeting" or similar, run `copilot stop`. It prints the lines file. Then give a short summary of the meeting, the decisions, and anything people committed to, quoting line numbers. Write nothing anywhere else unless the user asks.

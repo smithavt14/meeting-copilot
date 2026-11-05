@@ -9,6 +9,10 @@ data directory), one JSON object per line, appended as it happens:
 - ``{"ev": "draft", "d", "speaker", "utt", "text", "start", "named"}``: the open utterance so far. The final with the
   same speaker and ``utt`` replaces it.
 - ``{"ev": "echo", ...}``: a "me" line dropped as speaker echo of a call line.
+- ``{"ev": "said", "id", "phase": "start"|"end", "text", "start", "end"}``: written by ``copilot say`` around
+  playback. A "me" line or draft inside that window that repeats the answer is dropped as echo.
+- ``{"ev": "mute"|"unmute", "by": "voice"|"command"}``: while muted nothing else is written; the spoken
+  "Claude, mute" and "Claude, unmute" lines themselves are.
 - ``{"ev": "empty", "speaker", "utt"}``: an utterance that transcribed to nothing.
 - ``{"ev": "error", "msg"}``, and ``{"ev": "stop"}`` last.
 
@@ -26,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from meeting_copilot.echo import EchoGate
+from meeting_copilot.echo import EchoGate, SaidWindows
 from meeting_copilot.names import NameMatcher
 from meeting_copilot.pipeline import Draft, Final
 
@@ -37,6 +41,50 @@ STOP = "stop"
 
 def iso(t: float) -> str:
     return datetime.fromtimestamp(t).astimezone().isoformat(timespec="milliseconds")
+
+
+def parse_iso(s) -> float | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s)).timestamp()
+    except ValueError:
+        return None
+
+
+class Follower:
+    """Reads complete new JSON lines from a growing file; a torn last line waits for the next read."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.pos = 0
+        self._rest = b""
+
+    def read(self) -> list[dict]:
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(self.pos)
+                data = f.read()
+        except FileNotFoundError:
+            return []
+        self.pos += len(data)
+        data = self._rest + data
+        parts = data.split(b"\n")
+        self._rest = parts.pop()
+        out = []
+        for raw in parts:
+            try:
+                out.append(json.loads(raw.decode("utf-8", errors="replace")))
+            except json.JSONDecodeError:
+                continue
+        return out
+
+
+def append_event(path: Path, ev: str, **fields) -> None:
+    """One event appended by another process (``copilot say``): a single write of one line."""
+    line = json.dumps({"ev": ev, **fields}, ensure_ascii=False) + "\n"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
 
 
 def default_out() -> Path:
@@ -203,6 +251,42 @@ class Recorder:
         self.drafts: list[dict] = []
         self.echoes: list[dict] = []
         self._draft_shown = False
+        self.said = SaidWindows()
+        self._follow = Follower(self.path)
+        self.muted = False
+        self.on_mute: Callable[[bool], None] = lambda muted: None
+
+    def poll(self) -> None:
+        """Picks up events other processes appended to this run's file: ``said`` from ``copilot say``, ``mute`` and
+        ``unmute`` from ``copilot mute``/``unmute`` (and this process's own, which change nothing)."""
+        with self._lock:
+            for e in self._follow.read():
+                if e.get("ev") == "said":
+                    self.said.event(e, parse_iso)
+                elif e.get("ev") in ("mute", "unmute"):
+                    self._set_muted(e["ev"] == "mute")
+
+    def _set_muted(self, muted: bool) -> None:
+        if muted == self.muted:
+            return
+        self.muted = muted
+        if self.tty and self._draft_shown:
+            sys.stdout.write("\r\033[K")
+            self._draft_shown = False
+        self.status('muted: nothing is written until "Claude, unmute" or copilot unmute' if muted else "listening again")
+        self.on_mute(muted)
+
+    def mute(self, muted: bool, by: str) -> None:
+        with self._lock:
+            self.emit("mute" if muted else "unmute", by=by, t=iso(time.time()))
+            self._set_muted(muted)
+
+    def _said_echo(self, stream: str, text: str, t0: float, t1: float) -> float | None:
+        if stream != "me":
+            return None
+        self.poll()
+        echo, ratio = self.said.is_echo(text, t0, t1)
+        return ratio if echo else None
 
     def emit(self, ev: str, **fields) -> dict:
         rec = {"ev": ev, **fields}
@@ -224,6 +308,11 @@ class Recorder:
 
     def draft(self, d: Draft) -> None:
         with self._lock:
+            self.poll()
+            if self.muted:
+                return
+            if self._said_echo(d.stream, d.text, d.start, d.emit) is not None:
+                return  # the mic hearing the spoken answer
             self.d += 1
             rec = self.emit("draft", d=self.d, speaker=d.stream, utt=d.utt, text=d.text, start=iso(d.start),
                             t=iso(d.emit), named=self.names(d.text), audio_ms=d.audio_ms, ms=d.ms)
@@ -235,6 +324,26 @@ class Recorder:
 
     def final(self, f: Final) -> None:
         with self._lock:
+            self.poll()
+            cmd = self.names.command(f.text)
+            if self.muted:
+                if f.stream == "call" and self.gate:
+                    self.gate.call_final(f.start, f.end, "")  # keep the stream bookkeeping, remember no words
+                if cmd == "unmute":  # the command line is the one line written
+                    self._write_line(f, force=True)
+                    self.mute(False, by="voice")
+                return
+            if cmd == "mute":
+                self._write_line(f)
+                self.mute(True, by="voice")
+                return
+            ratio = self._said_echo(f.stream, f.text, f.start, f.end)
+            if ratio is not None:
+                self.echoes.append(self.emit("echo", speaker=f.stream, utt=f.utt, text=f.text, ratio=round(ratio, 2),
+                                             start=iso(f.start), end=iso(f.end), of="said"))
+                if self.gate is not None:
+                    self._release(self.gate.tick(time.time()))
+                return
             if self.gate is None:
                 self._write_line(f)
                 return
@@ -246,7 +355,8 @@ class Recorder:
             self._release(released)
 
     def empty(self, stream: str, utt: int) -> None:
-        self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
+        if not self.muted:
+            self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
         if stream == "call" and self.gate:
             with self._lock:
                 self._release(self.gate.call_final(0.0, 0.0, ""))
@@ -256,6 +366,7 @@ class Recorder:
         self.emit("error", msg=msg, t=iso(time.time()))
 
     def tick(self) -> None:
+        self.poll()
         if self.gate:
             with self._lock:
                 self._release(self.gate.tick(time.time()))
@@ -266,6 +377,8 @@ class Recorder:
                 self._release(self.gate.flush())
 
     def _release(self, held: list[dict]) -> None:
+        if self.muted:
+            return  # held lines heard before the mute are dropped with the rest
         for item in held:
             f: Final = item["final"]
             echo, ratio = self.gate.echo.is_echo(f.text, f.start, f.end)
@@ -276,7 +389,9 @@ class Recorder:
                 continue
             self._write_line(f)
 
-    def _write_line(self, f: Final) -> None:
+    def _write_line(self, f: Final, force: bool = False) -> None:
+        if self.muted and not force:
+            return
         self.n += 1
         rec = self.emit("line", n=self.n, speaker=f.stream, text=f.text, start=iso(f.start), end=iso(f.end),
                         utt=f.utt, named=self.names(f.text), latency_ms=int((f.emit - f.end) * 1000),
