@@ -1,6 +1,6 @@
 # Agent guide
 
-Instructions for a coding agent (Claude Code, Codex, or similar) setting up meeting-copilot for a user, or working on this repo. Read `README.md` for what each command does.
+Instructions for a coding agent (Claude Code, Codex, or similar) setting up meeting-copilot for a user, or working on this repo. Read `README.md` for what each command does, and `docs/usage.md` for the details.
 
 Before anything else, tell the user that this records and transcribes everyone it hears, and that many places require every party's consent.
 
@@ -43,7 +43,7 @@ Before anything else, tell the user that this records and transcribes everyone i
    stopped: 6 lines, 18 drafts, 0 echo lines dropped
    ```
    Small wording differences are fine. Then `copilot say "Setup is done."` should speak and print `said with kokoro (...)`. On Windows, record any short WAV and use that instead of `make_sample.py`.
-7. **Settings (optional).** Put the user's settings (wake name, voice, transcription) in the per-user file, since the skill runs `copilot` from whatever directory the session is in: `~/Library/Application Support/meeting-copilot/copilot.toml` on macOS, `%APPDATA%\meeting-copilot\copilot.toml` on Windows. The keys are in the README's Settings section. A `./copilot.toml` is read on top of it, and flags win.
+7. **Settings (optional).** Put the user's settings (wake name, voice, transcription) in the per-user file, since the skill runs `copilot` from whatever directory the session is in: `~/Library/Application Support/meeting-copilot/copilot.toml` on macOS, `%APPDATA%\meeting-copilot\copilot.toml` on Windows. The keys are in the Settings section of `docs/usage.md`. A `./copilot.toml` is read on top of it, and flags win.
 8. **Install the skill** so it works from any project, for the agent you are (and any others the user names). From the repo root, link `skills/meeting-copilot` into that agent's skills folder:
    ```sh
    mkdir -p ~/.claude/skills && ln -s "$PWD/skills/meeting-copilot" ~/.claude/skills/meeting-copilot   # Claude Code
