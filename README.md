@@ -1,4 +1,6 @@
-# meeting-copilot
+# copilot
+
+A copilot for your Claude Code session. Yes, another copilot.
 
 **Recording consent comes first.** This tool records and transcribes everyone it hears. Tell the room, and the people on the call, before you start it. Many places (including several US states and much of Europe) require every party's consent to record a conversation; check the rules where you and the other people are.
 
