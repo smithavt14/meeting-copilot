@@ -1,7 +1,7 @@
 """``copilot say``: speak a short answer. Engines, picked in this order unless the ``voice`` setting names one:
 
 - ``elevenlabs`` when ELEVENLABS_API_KEY is set: the streaming text-to-speech endpoint, 24 kHz PCM.
-- ``kokoro`` (the default otherwise): Kokoro-82M through kokoro-onnx, on the CPU, voice ``af_heart``.
+- ``kokoro`` (the default otherwise): Kokoro-82M through kokoro-onnx, on the CPU, voice ``am_puck``.
 - ``system``: ``say`` on macOS, System.Speech through PowerShell on Windows.
 
 Every engine yields float32 audio chunks that play through sounddevice. An engine that fails before any audio has
@@ -28,7 +28,7 @@ Chunks = Iterator[tuple[np.ndarray, int]]
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream?output_format=pcm_24000"
 DEFAULT_ELEVENLABS_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # the voice in ElevenLabs' own API examples
 DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
-DEFAULT_KOKORO_VOICE = "af_heart"
+DEFAULT_KOKORO_VOICE = "am_puck"
 ORDER = ["elevenlabs", "kokoro", "system"]
 
 

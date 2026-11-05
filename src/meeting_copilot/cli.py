@@ -31,7 +31,7 @@ DEFAULTS = {
     "wake_lines": 8,
     "max_wait_s": 600,
     "voice": "auto",
-    "kokoro_voice": "af_heart",
+    "kokoro_voice": "am_puck",
     "voice_speed": 1.0,
     "elevenlabs_voice": "JBFqnCBsd6RMkjVDRZzb",
     "elevenlabs_model": "eleven_flash_v2_5",

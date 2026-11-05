@@ -72,7 +72,7 @@ Say "Claude, mute" (or "Claude, stop listening"), or run `copilot mute` (in a se
 `copilot say "<text>"` (or text on stdin) speaks through the first engine that works:
 
 - `elevenlabs`, when `ELEVENLABS_API_KEY` is set: the streaming text-to-speech API, model `eleven_flash_v2_5`, voice `JBFqnCBsd6RMkjVDRZzb` (settings `elevenlabs_model`, `elevenlabs_voice`). Text goes to ElevenLabs.
-- `kokoro`: Kokoro-82M on the CPU through kokoro-onnx, voice `af_heart` (`kokoro_voice`, `voice_speed`). The model (about 350 MB) downloads on first use or with `copilot download`.
+- `kokoro`: Kokoro-82M on the CPU through kokoro-onnx, voice `am_puck` (`kokoro_voice`, `voice_speed`). The model (about 350 MB) downloads on first use or with `copilot download`.
 - `system`: `say` on macOS, System.Speech on Windows.
 
 `voice = "kokoro"` in `copilot.toml` or `--voice kokoro` picks one (it still falls back down the list). Each `say` marks the answer in the run's file, and any `me` line or draft that repeats its words while it plays or up to 4 seconds after is dropped as echo, by the same rule as call echo. Nothing heard in that window wakes the copilot. Headphones avoid the echo entirely.
@@ -139,7 +139,7 @@ vad_threshold = 0.5
 wake_lines = 8
 max_wait_s = 600
 voice = "auto"                # or "elevenlabs", "kokoro", "system"
-kokoro_voice = "af_heart"
+kokoro_voice = "am_puck"
 voice_speed = 1.0
 elevenlabs_voice = "JBFqnCBsd6RMkjVDRZzb"
 elevenlabs_model = "eleven_flash_v2_5"
