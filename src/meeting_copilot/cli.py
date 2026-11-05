@@ -182,8 +182,8 @@ def cmd_listen(a: argparse.Namespace) -> int:
                     rec.error("tap exited")
                     tap_warned = True
                 elif not src.got_audio.is_set() and time.time() - t0 > 15 and not tap_warned:
-                    log("no audio from the tap yet: is the app playing sound, and does this terminal have audio "
-                        "capture permission (README)?")
+                    log("no audio from the tap yet: is the app playing sound, and is System Audio Recording on for "
+                        "this terminal (see the README)?")
                     tap_warned = True
 
     for src in started:

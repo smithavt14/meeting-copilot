@@ -21,7 +21,7 @@ uv tool install --python 3.12 --editable .
 copilot download
 ```
 
-`uv tool install` puts `copilot` on your PATH. `copilot download` fetches the Silero VAD model (2 MB) and Parakeet TDT v3 (490 MB) into your user cache directory; without it, the first `copilot listen` does the same. If you would rather not install the command, run `uv sync` and use `uv run copilot ...` from the repo.
+`uv tool install` puts `copilot` in `~/.local/bin` (run `uv tool update-shell` once if that is not on your PATH). `copilot download` fetches the Silero VAD model (2 MB) and Parakeet TDT v3 (about 490 MB) into your user cache directory; without it, the first `copilot listen` does the same. If you would rather not install the command, run `uv sync` and use `uv run copilot ...` from the repo.
 
 ### macOS: the call's audio
 
@@ -31,7 +31,7 @@ The call's audio comes from a Core Audio process tap in a small Swift binary, `t
 scripts/build-tap.sh
 ```
 
-Two permissions, both for the terminal app you run `copilot` from (Terminal, iTerm, Ghostty, and so on):
+Two permissions, both for the app you run `copilot` from (Terminal, iTerm, Ghostty, or the app hosting your Claude Code session):
 
 - **Microphone**: macOS asks the first time `copilot listen` opens the mic.
 - **System audio recording**: System Settings > Privacy & Security > Screen & System Audio Recording, under "System Audio Recording Only", turn on the terminal app. macOS may ask on the first tap instead. Without it the tap delivers silence, and `copilot listen` says it has heard no audio from the tap after 15 seconds.
