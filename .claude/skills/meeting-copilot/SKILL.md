@@ -1,6 +1,6 @@
 ---
 name: meeting-copilot
-description: Be a copilot in a live meeting or a spoken work session. Starts `copilot listen` on the mic and the call's audio, reads the transcript as it arrives through `copilot wake`, answers questions addressed to "Claude" in text (aloud with `copilot say` only when asked), fact-checks claims, scopes ideas with subagents, and stays quiet otherwise. Mutes and stops when asked. Fires on "copilot this meeting", "listen to this call", "start the meeting copilot", "stop the meeting".
+description: Be a copilot in a live meeting or a spoken work session. Starts `copilot listen` on the mic and the call's audio, reads the transcript as it arrives through `copilot wake`, answers questions addressed to "Claude" in text (aloud with `copilot say` only when asked), fact-checks claims, scopes ideas with subagents, and stays quiet otherwise. Mutes and stops when asked. Fires on "copilot this meeting", "start a copilot session", "listen to this call", "start the meeting copilot", "stop the meeting".
 ---
 
 # Meeting copilot
