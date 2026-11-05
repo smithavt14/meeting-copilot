@@ -245,7 +245,7 @@ final class AppTap {
             guard tapBuffers.allSatisfy({ $0.mNumberChannels == perBuffer && $0.mData != nil }) else {
                 if !skippedLogged {
                     skippedLogged = true
-                    status("tap: unexpected buffer layout (\(list.count) buffers); skipping audio")
+                    status("unexpected buffer layout (\(list.count) buffers); skipping audio")
                 }
                 return
             }
@@ -256,7 +256,7 @@ final class AppTap {
             } else {
                 if !skippedLogged {
                     skippedLogged = true
-                    status("tap: skipping \(list.count - need) input buffer(s) from the output device")
+                    status("skipping \(list.count - need) input buffer(s) from the output device")
                 }
                 let frames = tapBuffers.map { $0.mDataByteSize / bytesPerFrame }.min() ?? 0
                 guard frames > 0, let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
