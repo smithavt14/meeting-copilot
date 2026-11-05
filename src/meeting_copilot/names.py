@@ -54,9 +54,10 @@ class NameMatcher:
         return COMMANDS.get(tail)
 
 
-FILLER = {"please", "now", "for", "a", "bit", "second", "minute", "thanks"}
+FILLER = {"please", "now", "for", "a", "bit", "second", "minute", "thanks", "thank", "here", "sec", "moment", "okay", "ok",
+          "the", "meeting", "this", "session", "quick", "real", "right", "can", "you", "could", "will", "go", "ahead"}
 COMMANDS = {
-    ("mute",): "mute", ("mute", "yourself"): "mute", ("stop", "listening"): "mute", ("go", "quiet"): "mute",
+    ("mute",): "mute", ("mute", "yourself"): "mute", ("stop", "listening"): "mute", ("quiet",): "mute",
     ("unmute",): "unmute", ("un", "mute"): "unmute", ("resume",): "unmute", ("start", "listening"): "unmute",
-    ("keep", "listening"): "unmute", ("you", "can", "listen"): "unmute",
+    ("keep", "listening"): "unmute", ("listen",): "unmute",
 }

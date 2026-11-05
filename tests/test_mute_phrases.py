@@ -22,3 +22,15 @@ def test_unmute(text):
                                   "Claude, how do I unmute in Zoom"])
 def test_not_a_command(text):
     assert m.command(text) is None
+
+
+@pytest.mark.parametrize("text,want", [
+    ("Alright, Claude mute here.", "mute"),
+    ("Claude, can you mute the meeting?", "mute"),
+    ("Claude, stop listening for a sec", "mute"),
+    ("Claude, you can listen", "unmute"),
+    ("Claude, mute the rest of the call and email Bob", None),
+    ("Okay so Claude what about mute buttons", None),
+])
+def test_command_phrases_from_the_live_test(text, want):
+    assert NameMatcher().command(text) == want
