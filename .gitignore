@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Swift
+tap/.build/
+tap/build/
+.swiftpm/
+
+# Run output: transcripts stay on your machine
+out/
+*.wav
+!tests/fixtures/README.md
+
+# Local settings
+copilot.toml
+.env
+.DS_Store
