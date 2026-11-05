@@ -2,6 +2,8 @@
 
 **Recording consent comes first.** This tool records and transcribes everyone it hears. Tell the room, and the people on the call, before you start it. Many places (including several US states and much of Europe) require every party's consent to record a conversation; check the rules where you and the other people are.
 
+It is a way to talk to your Claude Code session out loud while you work: in a design review, while walking through a change to a site, or in a meeting. You speak, Claude reads along and answers in its own chat when you say its name.
+
 meeting-copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. A Claude Code session reads those lines with `copilot wake` and answers in text when someone says "Claude, ...". Nothing joins the call and nothing speaks. It runs on macOS and Windows; the Windows path is untested so far.
 
 ```
@@ -48,10 +50,11 @@ No extra build step: the call's audio is WASAPI loopback through PyAudioWPatch, 
 copilot listen --app "Google Chrome"   # macOS: your mic plus Chrome's audio (Google Meet); also zoom.us, "Microsoft Teams", a bundle id
 copilot listen --loopback              # Windows: your mic plus everything the speakers play
 copilot listen                         # in person: the mic only
+copilot tail                           # in another terminal: watch the lines land, with the open drafts underneath
 copilot stop                           # from any other shell: stop the running listen cleanly (or Ctrl-C)
 ```
 
-Each finished line prints as it lands (`[12 14:03:21] call: ...`), and the run's directory is printed at the start. Other flags: `--no-mic`, `--mic-device <name or index>`, `--name <wake name>`, `--transcribe local|cloud`, `--draft-ms <ms>`. `copilot listen --help` lists them all.
+Each finished line prints as it lands (`[12 14:03:21] call: ...`), and the run's directory is printed at the start. `copilot tail` follows the current run from any terminal: final lines as `[12] call: ...`, and on a terminal the open drafts on one line underneath, speakers in two colours and drafts dimmed (set `NO_COLOR` to turn colour off). It exits when the run stops. Other flags: `--no-mic`, `--mic-device <name or index>`, `--name <wake name>`, `--transcribe local|cloud`, `--draft-ms <ms>`. `copilot listen --help` lists them all.
 
 **Wear headphones.** On laptop speakers the mic hears the call, and call lines come back as `me` lines. A backstop drops a `me` line that mostly repeats a `call` line from the last few seconds, but some will slip through.
 
@@ -73,7 +76,7 @@ Each run writes `<out>/<YYYY-MM-DD_HHMMSS>/lines.jsonl`, where `<out>` is `--out
 {"ev": "draft", "d": 31, "speaker": "me", "utt": 9, "text": "so the next step", "start": "2026-11-05T14:03:26.100-05:00", "named": false}
 ```
 
-There are also `start`, `echo` (a dropped speaker-echo line), `error` and `stop` events.
+There are also `start`, `echo` (a dropped speaker-echo line), `empty` (an utterance with no words), `error` and `stop` events.
 
 ### wake
 
@@ -86,10 +89,10 @@ Blocks until one of these, then prints the new lines and `--- seen=<n> drafts=<d
 - a final line says the name (`CALL`);
 - a draft says the name: the first draft of an utterance with no final yet (`DRAFT`);
 - 8 new lines (`--lines`);
-- the run stops (`END`);
+- the run stops, or its listener process is gone (`END`);
 - 10 minutes pass (`TIMEOUT`, `--max-wait` in seconds).
 
-Pass `seen` and `drafts` back as `--since` and `--drafts-since` next time.
+Pass `seen` and `drafts` back as `--since` and `--drafts-since` next time. Started a moment before `listen`, it waits up to 15 seconds for the run to appear.
 
 ### Settings
 
@@ -112,7 +115,7 @@ max_wait_s = 600
 
 ## The Claude Code skill
 
-`.claude/skills/meeting-copilot/SKILL.md` is a project skill: Claude Code loads it when you start a session in this repo. Say "copilot this meeting" and it starts `copilot listen` in the background, runs `wake` in a loop, answers "Claude, ..." questions in text, fact-checks, scopes ideas with subagents, stays quiet otherwise, and stops the run when you say "stop the meeting".
+`.claude/skills/meeting-copilot/SKILL.md` is a project skill: Claude Code loads it when you start a session in this repo. Say "copilot this meeting" and it starts `copilot listen` in the background, opens `copilot tail` where you can watch it (or gives you the command), runs `wake` in a loop, answers "Claude, ..." questions in text, fact-checks, scopes ideas with subagents, stays quiet otherwise, and stops the run when you say "stop the meeting".
 
 To use it from any project, link it into your personal skills:
 

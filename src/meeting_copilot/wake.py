@@ -6,7 +6,7 @@ It returns on the first of:
 - a named draft: the first draft of an utterance that says the name, newer than ``drafts_since``, whose utterance
   has no final line yet (printed marked ``DRAFT``);
 - ``lines`` new final lines after ``since``;
-- the run's ``stop`` event (``END``);
+- the run's ``stop`` event, or the listener's process gone without one (``END``);
 - ``max_wait`` seconds (``TIMEOUT``).
 
 The output is the new final lines, then any waking drafts, then ``--- seen=<n> drafts=<d>`` and the markers. Pass
@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from meeting_copilot.run import LINES, format_draft, format_line
+from meeting_copilot.run import LINES, format_draft, format_line, pid_alive, run_pid
 
 
 def read_events(path: str | Path) -> list[dict[str, Any]]:
@@ -57,7 +57,7 @@ def new_lines(events: list[dict[str, Any]], since: int) -> list[dict[str, Any]]:
 def wake(run_dir: str | Path | None, since: int, drafts_since: int | None = None, lines: int = 8,
          max_wait: float = 600.0, poll_s: float = 0.2, out: Callable[[str], None] = print,
          clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
-         appear_s: float = 10.0) -> int:
+         appear_s: float = 15.0, alive: Callable[[int], bool] = pid_alive) -> int:
     path = Path(run_dir) / LINES if run_dir is not None else None
     started = clock()
     while path is not None and not path.exists() and clock() - started < appear_s:
@@ -72,6 +72,9 @@ def wake(run_dir: str | Path | None, since: int, drafts_since: int | None = None
             drafts_since = last_draft(events)  # no cursor given: drafts already written are old
         fresh = new_lines(events, since)
         stopped = any(e.get("ev") == "stop" for e in events)
+        if not stopped:
+            pid = run_pid(events)
+            stopped = pid is not None and not alive(pid)  # the listener is gone without a stop event
         early = draft_hits(events, drafts_since)
         called = any(e.get("named") for e in fresh)
         timed_out = clock() - started >= max_wait

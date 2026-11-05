@@ -193,11 +193,15 @@ final class AppTap {
         desc.name = "meeting-copilot"
         desc.isPrivate = true
         desc.muteBehavior = .unmuted
+        #if canImport(FoundationModels)
+        // bundleIDs and isProcessRestoreEnabled exist only in the macOS 26 SDK, so they are compiled in only when
+        // building against it (FoundationModels ships in that SDK and no earlier one), and used only on macOS 26.
+        // They keep the tap following the app when its audio processes come and go.
         if pid == nil, #available(macOS 26.0, *) {
-            // Keeps following the app when its audio processes come and go.
             desc.bundleIDs = bundles
             desc.isProcessRestoreEnabled = true
         }
+        #endif
         var tap = AudioObjectID(kAudioObjectUnknown)
         var rc = AudioHardwareCreateProcessTap(desc, &tap)
         guard rc == noErr else { throw Fail("AudioHardwareCreateProcessTap \(rc)") }

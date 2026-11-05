@@ -9,6 +9,7 @@ data directory), one JSON object per line, appended as it happens:
 - ``{"ev": "draft", "d", "speaker", "utt", "text", "start", "named"}``: the open utterance so far. The final with the
   same speaker and ``utt`` replaces it.
 - ``{"ev": "echo", ...}``: a "me" line dropped as speaker echo of a call line.
+- ``{"ev": "empty", "speaker", "utt"}``: an utterance that transcribed to nothing.
 - ``{"ev": "error", "msg"}``, and ``{"ev": "stop"}`` last.
 
 ``<out>/current.json`` names the running run, and a ``stop`` file in the run directory ends it.
@@ -61,16 +62,97 @@ def new_run_dir(out: Path) -> Path:
     return d
 
 
-def current_run(out: Path) -> Path | None:
-    """The run named in ``current.json``, else the newest run directory with a lines file."""
+def read_current(out: Path) -> dict | None:
+    """``current.json``: ``{"pid", "dir"}``; ``dir`` is null while the run is still starting."""
     try:
-        d = Path(json.loads((out / CURRENT).read_text())["dir"])
-        if d.exists():
-            return d
-    except (OSError, ValueError, KeyError):
-        pass
+        cur = json.loads((out / CURRENT).read_text())
+        return cur if isinstance(cur, dict) and "pid" in cur else None
+    except (OSError, ValueError):
+        return None
+
+
+def newest_run(out: Path) -> Path | None:
     runs = sorted((p.parent for p in out.glob(f"*/{LINES}")), key=lambda p: p.name)
     return runs[-1] if runs else None
+
+
+def current_run(out: Path) -> Path | None:
+    """The run named in ``current.json``, else the newest run directory with a lines file."""
+    cur = read_current(out)
+    if cur and cur.get("dir") and Path(cur["dir"]).exists():
+        return Path(cur["dir"])
+    return newest_run(out)
+
+
+def find_run(out: Path, wait_s: float = 15.0, poll_s: float = 0.2, clock=time.time, sleep=time.sleep) -> Path | None:
+    """The live run, waiting up to ``wait_s`` for one that is starting or about to start; after that, the newest
+    finished run (or None). A command started a moment before ``listen`` thus attaches to the new run."""
+    deadline = clock() + wait_s
+    while True:
+        cur = read_current(out)
+        if cur and pid_alive(int(cur.get("pid") or 0)) and cur.get("dir") and (Path(cur["dir"]) / LINES).exists():
+            return Path(cur["dir"])
+        if clock() >= deadline:
+            return newest_run(out)
+        sleep(poll_s)
+
+
+class RunBusy(Exception):
+    def __init__(self, pid: int) -> None:
+        super().__init__(f"a run is already going (pid {pid})")
+        self.pid = pid
+
+
+def reserve(out: Path) -> None:
+    """Claims ``current.json`` for this process with an exclusive create, so two listeners cannot both start.
+    A file left by a process that is gone is taken over. Raises RunBusy when a live process holds it."""
+    path = out / CURRENT
+    for _ in range(3):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            cur = read_current(out)
+            if cur is None:
+                # Being written right now, or unreadable: look again, then treat it as stale.
+                time.sleep(0.1)
+                cur = read_current(out)
+            pid = int(cur.get("pid") or 0) if cur else 0
+            if pid and pid_alive(pid):
+                raise RunBusy(pid)
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            continue
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps({"pid": os.getpid(), "dir": None}))
+        return
+    raise RuntimeError(f"cannot claim {path}")
+
+
+def publish(out: Path, run_dir: Path) -> None:
+    """Names the run directory in this process's ``current.json`` (atomic replace)."""
+    tmp = out / f"{CURRENT}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps({"pid": os.getpid(), "dir": str(run_dir.resolve())}))
+    os.replace(tmp, out / CURRENT)
+
+
+def release(out: Path) -> None:
+    """Removes ``current.json`` if this process holds it."""
+    cur = read_current(out)
+    if cur and int(cur.get("pid") or 0) == os.getpid():
+        try:
+            (out / CURRENT).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def run_pid(events: list[dict]) -> int | None:
+    """The listener's pid, from the run's start event."""
+    for e in events:
+        if e.get("ev") == "start" and e.get("pid"):
+            return int(e["pid"])
+    return None
 
 
 def pid_alive(pid: int) -> bool:
@@ -164,6 +246,7 @@ class Recorder:
             self._release(released)
 
     def empty(self, stream: str, utt: int) -> None:
+        self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
         if stream == "call" and self.gate:
             with self._lock:
                 self._release(self.gate.call_final(0.0, 0.0, ""))

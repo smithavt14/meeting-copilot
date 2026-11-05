@@ -13,8 +13,9 @@ description: Be a silent copilot in a live meeting. Starts `copilot listen` on t
    - A call in a browser or app on a Mac: `copilot listen --app "Google Chrome"` (or `zoom.us`, `"Microsoft Teams"`, a bundle id).
    - A call on Windows: `copilot listen --loopback` (it hears every app the speakers play).
    - In person: `copilot listen` (mic only).
-2. Run it with the Bash tool and `run_in_background: true`. Read its output for the `lines <path>` line and tell the user it is listening and where the lines go. If it says a run is already going, say so and stop.
-3. Remind the user in one line to tell the room an AI is taking notes. Some places require every party's consent to record.
+2. Run it with the Bash tool and `run_in_background: true`. Read its output for the `lines <path>` line and tell the user it is listening and where the lines go. If it says a run is already going, say so and stop. If it exits with an error, show the user the error and stop.
+3. Give the user a live view they can watch. If the host lets you open a terminal the user can see (a terminal panel or tab tool), run `copilot tail` there. Otherwise give the user the exact command from listen's `watch it live in another terminal:` line to run themselves. Do this every time; the user should never be left without a view of what is being heard.
+4. Remind the user in one line to tell the room an AI is taking notes. Some places require every party's consent to record.
 
 ## 2. During
 

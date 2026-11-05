@@ -164,6 +164,7 @@ class MacTapSource:
         self.proc: subprocess.Popen | None = None
         self.done = threading.Event()
         self.got_audio = threading.Event()
+        self.errors: list[str] = []
 
     def start(self, on_audio: OnAudio, log: Log) -> None:
         tap = find_tap()
@@ -172,7 +173,13 @@ class MacTapSource:
         args = [str(tap), "--pid", str(self.pid)] if self.pid else [str(tap), "--app", str(self.app)]
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         threading.Thread(target=self._read, args=(on_audio,), daemon=True).start()
-        threading.Thread(target=self._errors, args=(log,), daemon=True).start()
+        err = threading.Thread(target=self._errors, args=(log,), daemon=True)
+        err.start()
+        for _ in range(10):  # an app name that matches nothing, or a missing binary, fails at once
+            if self.proc.poll() is not None:
+                err.join(timeout=1)
+                raise RuntimeError(f"tap exited: {self.errors[-1] if self.errors else self.proc.returncode}")
+            time.sleep(0.1)
 
     def _read(self, on_audio: OnAudio) -> None:
         assert self.proc and self.proc.stdout
@@ -192,6 +199,7 @@ class MacTapSource:
         for raw in self.proc.stderr:
             line = raw.decode("utf-8", errors="replace").rstrip()
             if line:
+                self.errors.append(line)
                 log(f"tap: {line}")
 
     def stop(self) -> None:

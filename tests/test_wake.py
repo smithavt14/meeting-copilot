@@ -126,3 +126,52 @@ def test_wakes_when_a_line_lands_later(tmp_path):
     out = []
     wake(tmp_path, since=1, drafts_since=0, out=out.append, poll_s=0.05, max_wait=5)
     assert out[-1] == "--- seen=2 drafts=0 CALL"
+
+
+def test_a_dead_listener_without_a_stop_event_is_end(tmp_path):
+    write(tmp_path, [{"ev": "start", "pid": 4242}, line(1, "a")])
+    out = []
+    clock = FakeClock()
+    wake(tmp_path, since=0, lines=8, max_wait=600, out=out.append, clock=clock, sleep=clock.sleep,
+         alive=lambda pid: False)
+    assert out[-1] == "--- seen=1 drafts=0 END"
+    assert clock.t == 0.0
+
+
+def test_a_live_listener_keeps_wake_waiting(tmp_path):
+    write(tmp_path, [{"ev": "start", "pid": 4242}, line(1, "a")])
+    out = []
+    clock = FakeClock()
+    wake(tmp_path, since=0, lines=8, max_wait=5, out=out.append, clock=clock, sleep=clock.sleep,
+         alive=lambda pid: True)
+    assert out[-1] == "--- seen=1 drafts=0 TIMEOUT"
+
+
+def test_wake_started_before_listen_attaches_to_the_new_run(tmp_path):
+    """The CLI path: wake waits for current.json and the lines file instead of failing at once."""
+    import os
+    import time as _time
+
+    from meeting_copilot import cli
+    from meeting_copilot import run as runmod
+
+    def start_listen():
+        _time.sleep(0.5)
+        runmod.reserve(tmp_path)
+        d = runmod.new_run_dir(tmp_path)
+        (d / "lines.jsonl").write_text(json.dumps({"ev": "start", "pid": os.getpid()}) + "\n" +
+                                       json.dumps(line(1, "Claude, are you there", named=True)) + "\n")
+        runmod.publish(tmp_path, d)
+
+    t = threading.Thread(target=start_listen)
+    t.start()
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cli.main(["--out", str(tmp_path), "wake", "--since", "0", "--drafts-since", "0", "--max-wait", "5"])
+    t.join()
+    runmod.release(tmp_path)
+    assert rc == 0
+    assert buf.getvalue().strip().splitlines()[-1] == "--- seen=1 drafts=0 CALL"

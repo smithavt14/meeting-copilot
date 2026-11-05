@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import signal
 import sys
@@ -80,11 +81,7 @@ class Pump:
 
 
 def cmd_listen(a: argparse.Namespace) -> int:
-    from meeting_copilot.models import silero_path
-    from meeting_copilot.pipeline import Handlers, Scheduler, Stream
     from meeting_copilot.sources import FileSource, LoopbackSource, MacTapSource, MicSource
-    from meeting_copilot.transcribe import make_engine
-    from meeting_copilot.vad import SileroVAD
 
     s = load_settings(a.config)
     for key in ("name", "transcribe", "cloud_model", "language", "draft_ms"):
@@ -92,14 +89,13 @@ def cmd_listen(a: argparse.Namespace) -> int:
             s[key] = getattr(a, key)
     out = Path(a.out) if a.out else runmod.default_out()
     out.mkdir(parents=True, exist_ok=True)
-    pid = runmod.running_pid(out)
-    if pid:
-        log(f"a run is already going (pid {pid}); copilot stop ends it")
-        return 1
 
     # Sources, by name: "me" is the mic, "call" is the computer's audio.
     sources: dict[str, object] = {}
     if a.file:
+        if not Path(a.file).is_file():
+            log(f"no such file: {a.file}")
+            return 1
         sources[a.file_as] = FileSource(a.file, speed=a.speed)
     else:
         if not a.no_mic:
@@ -120,6 +116,34 @@ def cmd_listen(a: argparse.Namespace) -> int:
         log("nothing to listen to: drop --no-mic, or add --app, --loopback or --file")
         return 1
 
+    # Claim the run before the slow model load, so a second listener stops here.
+    try:
+        runmod.reserve(out)
+    except runmod.RunBusy as e:
+        log(f"a run is already going (pid {e.pid}); copilot stop ends it")
+        return 1
+    try:
+        return _listen(a, s, out, sources)
+    finally:
+        runmod.release(out)
+
+
+def tail_command(a: argparse.Namespace) -> str:
+    """The exact ``copilot tail`` command for this run's output directory."""
+    if a.out:
+        return f'copilot --out "{a.out}" tail'
+    if os.environ.get("COPILOT_OUT"):
+        return f'COPILOT_OUT="{os.environ["COPILOT_OUT"]}" copilot tail'
+    return "copilot tail"
+
+
+def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
+    from meeting_copilot.models import silero_path
+    from meeting_copilot.pipeline import Handlers, Scheduler, Stream
+    from meeting_copilot.sources import MacTapSource
+    from meeting_copilot.transcribe import make_engine
+    from meeting_copilot.vad import SileroVAD
+
     log(f"transcription: {s['transcribe']}" + (f" ({s['cloud_model']})" if s["transcribe"] == "cloud" else " (Parakeet TDT v3)"))
     try:
         engine = make_engine(s["transcribe"], s["cloud_model"], s["language"] or None)
@@ -129,7 +153,6 @@ def cmd_listen(a: argparse.Namespace) -> int:
         return 1
 
     run_dir = runmod.new_run_dir(out)
-    (out / runmod.CURRENT).write_text(json.dumps({"pid": __import__("os").getpid(), "dir": str(run_dir.resolve())}))
     names = matcher(s)
     rec = runmod.Recorder(run_dir, names, echo={"me", "call"} <= set(sources), status=log,
                           tty=sys.stdout.isatty())
@@ -142,28 +165,42 @@ def cmd_listen(a: argparse.Namespace) -> int:
                                silence_s=s["silence_ms"] / 1000, pre_roll_s=s["pre_roll_ms"] / 1000,
                                draft_s=max(0, int(s["draft_ms"])) / 1000)
         pumps[name] = Pump(streams[name])
-    rec.emit("start", t=runmod.iso(time.time()), streams=sorted(sources), transcribe=s["transcribe"],
+    rec.emit("start", t=runmod.iso(time.time()), pid=os.getpid(), streams=sorted(sources), transcribe=s["transcribe"],
              model=s["cloud_model"] if s["transcribe"] == "cloud" else "parakeet-tdt-0.6b-v3",
              draft_ms=int(s["draft_ms"]), name=s["name"], file=str(a.file) if a.file else None)
+    runmod.publish(out, run_dir)
 
     stopping = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, lambda *_: stopping.set())
 
+    def shutdown(started: list) -> None:
+        for src in started:
+            src.stop()
+        for p in pumps.values():
+            p.close()
+        for st in streams.values():
+            st.close()
+        rec.flush()
+        rec.emit("stop", t=runmod.iso(time.time()))
+        rec.close()
+
     started = []
-    try:
-        for name, src in sources.items():
+    for name, src in sources.items():
+        try:
             src.start(pumps[name], log)
-            started.append(src)
-    except Exception as e:
-        log(f"cannot start {name}: {e}")
-        stopping.set()
+        except Exception as e:
+            rec.error(f"cannot start {name}: {e}")  # also printed
+            shutdown(started)
+            return 1
+        started.append(src)
     desc = {"me": "me (mic)", "call": "call (" + (a.app or (f"pid {a.pid}" if a.pid else "loopback")) + ")"}
     if a.file:
         desc = {a.file_as: f"{a.file_as} ({Path(a.file).name})"}
     log("listening: " + ", ".join(desc[n] for n in sources))
     log(f"lines {rec.path}")
+    log(f"watch it live in another terminal: {tail_command(a)}")
     log("stop with Ctrl-C or: copilot stop")
 
     tap_warned = False
@@ -186,21 +223,7 @@ def cmd_listen(a: argparse.Namespace) -> int:
                         "this terminal (see the README)?")
                     tap_warned = True
 
-    for src in started:
-        src.stop()
-    for p in pumps.values():
-        p.close()
-    for st in streams.values():
-        st.close()
-    rec.flush()
-    rec.emit("stop", t=runmod.iso(time.time()))
-    rec.close()
-    try:
-        cur = json.loads((out / runmod.CURRENT).read_text())
-        if Path(cur.get("dir", "")) == run_dir.resolve():
-            (out / runmod.CURRENT).unlink()
-    except (OSError, ValueError):
-        pass
+    shutdown(started)
     log(f"stopped: {rec.n} lines, {rec.d} drafts, {len(rec.echoes)} echo lines dropped")
     log(f"lines {rec.path}")
     return 0
@@ -213,7 +236,7 @@ def cmd_wake(a: argparse.Namespace) -> int:
 
     s = load_settings(a.config)
     out = Path(a.out) if a.out else runmod.default_out()
-    run_dir = Path(a.run) if a.run else runmod.current_run(out)
+    run_dir = Path(a.run) if a.run else runmod.find_run(out)
     return wake(run_dir, a.since, a.drafts_since, lines=a.lines or int(s["wake_lines"]),
                 max_wait=a.max_wait if a.max_wait is not None else float(s["max_wait_s"]))
 
@@ -221,7 +244,7 @@ def cmd_wake(a: argparse.Namespace) -> int:
 def cmd_stop(a: argparse.Namespace) -> int:
     out = Path(a.out) if a.out else runmod.default_out()
     pid = runmod.running_pid(out)
-    run_dir = runmod.current_run(out)
+    run_dir = runmod.find_run(out) if pid else None
     if not pid or run_dir is None:
         log("no run is going")
         return 1
@@ -234,6 +257,20 @@ def cmd_stop(a: argparse.Namespace) -> int:
         return 1
     print(f"stopped {run_dir / runmod.LINES}")
     return 0
+
+
+def cmd_tail(a: argparse.Namespace) -> int:
+    from meeting_copilot.tail import tail
+
+    out = Path(a.out) if a.out else runmod.default_out()
+    run_dir = Path(a.run) if a.run else runmod.find_run(out)
+    if run_dir is None:
+        log("no run found")
+        return 2
+    try:
+        return tail(run_dir, a.since, tty=sys.stdout.isatty())
+    except KeyboardInterrupt:
+        return 0
 
 
 def cmd_download(a: argparse.Namespace) -> int:
@@ -274,6 +311,11 @@ def parser() -> argparse.ArgumentParser:
     wk.add_argument("--max-wait", dest="max_wait", type=float, help="return after this many seconds (default 600)")
     wk.add_argument("--run", help="a run directory (default: the current or newest run)")
     wk.set_defaults(func=cmd_wake)
+
+    tl = sub.add_parser("tail", help="show the current run's lines as they land, with open drafts on a TTY")
+    tl.add_argument("--since", type=int, default=0, help="start after this line number")
+    tl.add_argument("--run", help="a run directory (default: the current or newest run)")
+    tl.set_defaults(func=cmd_tail)
 
     st = sub.add_parser("stop", help="stop the running listen cleanly")
     st.set_defaults(func=cmd_stop)
