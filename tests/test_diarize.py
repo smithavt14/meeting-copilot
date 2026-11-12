@@ -89,6 +89,14 @@ def test_relabel_keeps_a_quiet_person_in_a_short_run():
     assert v.relabel()[-2:] == ["s2", "s2"]
 
 
+def test_relabel_never_hands_a_label_to_the_provisional_newcomer():
+    v = Voices()
+    alice, bob = np.array([1.0, 0.0]), np.array([0.0, 1.0])
+    live = [v.assign(alice, 3.0)[0], v.assign(bob, 15.0)[0], v.assign(bob, 3.0)[0], v.assign(alice, 3.0)[0]]
+    assert live == ["s1", "s1", "s2", "s1"]  # Bob's first, long line borrowed s1 while his voice was provisional
+    assert v.relabel(min_voice_s=1) == ["s1", "s2", "s2", "s1"]
+
+
 def test_relabel_of_nothing():
     assert Voices().relabel() == []
 

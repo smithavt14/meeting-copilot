@@ -54,7 +54,9 @@ class Voices:
     min_new_s: float = MIN_NEW_S
     confirm: int = CONFIRM
     voices: list[_Voice] = field(default_factory=list)
-    history: list[tuple[np.ndarray, float, str]] = field(default_factory=list)  # (embedding, seconds, live label)
+    # (embedding, seconds, live label, whether that label is the utterance's own voice's or was borrowed by a
+    # provisional voice)
+    history: list[tuple[np.ndarray, float, str, bool]] = field(default_factory=list)
     _next: int = 1
 
     def _mint(self, v: _Voice) -> None:
@@ -76,12 +78,13 @@ class Voices:
             self.voices.append(voice)
         if voice.label is None and (voice.n >= self.confirm or not any(v.label for v in self.voices)):
             self._mint(voice)
-        if voice.label is None:
+        own = voice.label is not None
+        if own:
+            label = voice.label
+        else:
             confirmed = [v for v in self.voices if v.label]
             label = max(confirmed, key=lambda v: float(e @ v.centroid())).label
-        else:
-            label = voice.label
-        self.history.append((e, float(seconds), label))
+        self.history.append((e, float(seconds), label, own))
         return label, len(self.history) - 1
 
     def relabel(self, min_voice_s: float = MIN_VOICE_S) -> list[str]:
@@ -91,6 +94,7 @@ class Voices:
         E = np.stack([h[0] for h in self.history])
         secs = [h[1] for h in self.history]
         live = [h[2] for h in self.history]
+        own = [h[3] for h in self.history]
         groups = _agglomerate(E, secs, self.threshold, self.min_new_s)
         # Fold voices with too little speech into the nearest bigger one.
         talk = {g: sum(s for s, x in zip(secs, groups) if x == g) for g in set(groups)}
@@ -98,11 +102,13 @@ class Voices:
         big = [g for g in talk if talk[g] >= floor] or [max(talk, key=talk.get)]
         cents = {g: unit(E[[i for i, x in enumerate(groups) if x == g]].mean(0)) for g in big}
         groups = [g if g in big else max(big, key=lambda b: float(E[i] @ cents[b])) for i, g in enumerate(groups)]
-        # Name each group after the live label it overlaps most (by seconds), biggest groups first; a group with no
-        # live label left gets a new one.
+        # Name each group after the live label it overlaps most (by seconds), biggest overlaps first; a group with no
+        # live label left gets a new one. Only lines that carried their own voice's label count: a provisional line
+        # borrowed someone else's, and counting it could hand that person's label (and name) to the newcomer.
         overlap: dict[tuple[int, str], float] = {}
-        for g, lab, s in zip(groups, live, secs):
-            overlap[(g, lab)] = overlap.get((g, lab), 0.0) + s
+        for g, lab, s, mine in zip(groups, live, secs, own):
+            if mine:
+                overlap[(g, lab)] = overlap.get((g, lab), 0.0) + s
         names: dict[int, str] = {}
         used: set[str] = set()
         for (g, lab), _ in sorted(overlap.items(), key=lambda kv: -kv[1]):
