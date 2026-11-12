@@ -220,7 +220,8 @@ class SilenceFill:
         self.gap_s = gap_s
         self.step_s = step_s
         self.clock = clock
-        self.last = clock()
+        self.fed = clock()  # the time up to which the stream has audio, real or filled
+        self.filling = False
         self.lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -230,16 +231,21 @@ class SilenceFill:
         with self.lock:
             now = self.clock()
             self.on_audio(samples, now)
-            self.last = now
+            self.fed = now
+            self.filling = False
 
     def tick(self) -> bool:
-        """Feeds one step of silence when the source has been quiet for ``gap_s``. True when it did."""
+        """Once the source has been quiet for ``gap_s``, feeds silence for the whole time since its last audio, then
+        keeps up every ``step_s``, so the stream sees a pause as long as it really was. True when it fed some."""
         with self.lock:
             now = self.clock()
-            if now - self.last < self.gap_s:
+            due = self.step_s if self.filling else self.gap_s
+            if now - self.fed < due:
                 return False
-            self.on_audio(np.zeros(int(RATE * self.step_s), dtype=np.float32), now)
-            self.last = now - self.gap_s + self.step_s  # the next step is due in step_s
+            n = int(round((now - self.fed) * RATE))
+            self.on_audio(np.zeros(n, dtype=np.float32), now)
+            self.fed += n / RATE
+            self.filling = True
             return True
 
     def start(self) -> None:

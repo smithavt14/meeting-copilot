@@ -118,15 +118,49 @@ def test_silence_fill_feeds_silence_only_in_a_gap():
     now[0] = 0.2
     assert not fill.tick()
     now[0] = 0.35
-    assert fill.tick() and got[-1] == (1600, 0.35)
+    assert fill.tick() and got[-1] == (5600, 0.35)  # the whole 350 ms since the last audio
     now[0] = 0.4
-    assert not fill.tick()  # the next step is due 0.1 s after the last
+    assert not fill.tick()  # then a step every 100 ms
     now[0] = 0.45
-    assert fill.tick()
+    assert fill.tick() and got[-1][0] == 1600
     fill.audio(np.ones(1600, dtype=np.float32))  # real audio again: the gap clock restarts
     now[0] = 0.6
     assert not fill.tick()
-    assert [n for n, _ in got] == [1600, 1600, 1600, 1600]
+    assert sum(n for n, _ in got[1:3]) == 7200  # silence fed equals the 450 ms gap
+
+
+def test_a_600_ms_bufferless_pause_still_splits_two_utterances():
+    """Codex review: the gap fed to the stream must be as long as the real pause, or 500 ms of silence never shows."""
+    from meeting_copilot.pipeline import Handlers, Scheduler, Stream
+
+    class LoudVAD:  # speech when the chunk has signal
+        window = 512
+
+        def __call__(self, x):
+            return 1.0 if float(np.abs(x).max()) > 0 else 0.0
+
+        def reset(self):
+            pass
+
+    finals = []
+    stream = Stream("call", LoudVAD(), Scheduler(lambda x: "words"), Handlers(final=finals.append), draft_s=0)
+    now = [0.0]
+    fill = SilenceFill(stream.feed, clock=lambda: now[0])
+    tone = np.full(1600, 0.5, dtype=np.float32)
+    for _ in range(10):  # 1 s of speech, 100 ms buffers
+        now[0] += 0.1
+        fill.audio(tone)
+    for _ in range(12):  # 600 ms with no buffers at all
+        now[0] += 0.05
+        fill.tick()
+    for _ in range(10):
+        now[0] += 0.1
+        fill.audio(tone)
+    for _ in range(30):
+        now[0] += 0.05
+        fill.tick()
+    stream.close()
+    assert len(finals) == 2
 
 
 def test_windows_speech_passes_text_on_stdin_and_the_path_in_the_environment(tmp_path):
