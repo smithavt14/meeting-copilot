@@ -111,6 +111,8 @@ class Final:
     drafts: int
     behind_draft: bool
     muted: bool = False  # the utterance overlapped a mute at some point
+    speaker: str | None = None  # the voice label (s1, s2, ...) when the stream is diarized
+    voice: int | None = None  # the utterance's index in the diarizer's history, for the end-of-run relabel
 
 
 @dataclass
@@ -148,7 +150,8 @@ class Stream:
 
     def __init__(self, name: str, vad: Callable[[np.ndarray], float], scheduler: Scheduler, handlers: Handlers,
                  threshold: float = 0.5, silence_s: float = 0.5, pre_roll_s: float = 0.3, max_utt_s: float = 30.0,
-                 draft_s: float = 1.0, clock: Callable[[], float] = time.time, sync: bool = False) -> None:
+                 draft_s: float = 1.0, clock: Callable[[], float] = time.time, sync: bool = False,
+                 labeler: Callable[[np.ndarray, float], tuple[str, int]] | None = None) -> None:
         self.name = name
         self.vad = vad
         self.scheduler = scheduler
@@ -159,6 +162,7 @@ class Stream:
         self.max_utt_s = max_utt_s
         self.draft_s = draft_s
         self.clock = clock
+        self.labeler = labeler  # speaker labels for each final with words (diarize.Diarizer.label)
         self.sync = sync  # tests: run finals inline and drafts on threads that ``wait_drafts`` can join
 
         self._pending = np.zeros(0, dtype=np.float32)
@@ -313,8 +317,14 @@ class Stream:
         if not has_text(text):
             self.h.empty(self.name, seg.utt)
             return
+        speaker = voice = None
+        if self.labeler is not None and not (seg.muted or self.scheduler.muted):  # muted speech teaches no voices
+            try:
+                speaker, voice = self.labeler(seg.samples, seg.end_wall - seg.start_wall)  # voiced seconds
+            except Exception as e:  # the line still goes out, labelled by its stream
+                self.h.error(f"{self.name}: speaker label failed: {e}")
         self.h.final(Final(self.name, seg.utt, text, seg.start_wall, seg.end_wall, self.clock(), drafts, behind,
-                           seg.muted))
+                           seg.muted, speaker, voice))
 
     def close(self) -> None:
         """End any open utterance, transcribe it, and wait for every final."""
