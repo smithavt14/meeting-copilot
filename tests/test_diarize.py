@@ -97,6 +97,22 @@ def test_relabel_never_hands_a_label_to_the_provisional_newcomer():
     assert v.relabel(min_voice_s=1) == ["s1", "s2", "s2", "s1"]
 
 
+def test_borrowed_speech_does_not_protect_the_lender_from_a_split():
+    v = Voices()
+    alice, bob = np.array([1.0, 0.0]), np.array([0.0, 1.0])
+    live = [v.assign(alice, 2.0)[0], v.assign(bob, 30.0)[0]] + [v.assign(bob, 3.0)[0] for _ in range(10)]
+    assert live[:3] == ["s1", "s1", "s2"]  # Bob's first 30 s borrowed s1
+    assert v.relabel(min_voice_s=1) == ["s1"] + ["s2"] * 11
+
+
+def test_short_replies_by_voiced_seconds_start_no_voice():
+    d = Diarizer(embed=lambda samples: voice(0) if len(samples) > 2 * RATE else voice(1))
+    d.label(np.zeros(3 * RATE, dtype=np.float32), 2.5)
+    for _ in range(2):  # 0.8 s replies in a 1.6 s buffer (pre-roll and trailing silence)
+        assert d.label(np.zeros(int(1.6 * RATE), dtype=np.float32), 0.8)[0] == "s1"
+    assert len(d.voices.voices) == 1
+
+
 def test_relabel_of_nothing():
     assert Voices().relabel() == []
 
@@ -117,23 +133,24 @@ def run_stream(labeler, muted=False):
 def test_each_final_carries_its_label():
     seen = []
 
-    def labeler(samples):
-        seen.append(len(samples) / RATE)
+    def labeler(samples, seconds):
+        seen.append((len(samples) / RATE, seconds))
         return f"s{len(seen)}", len(seen) - 1
 
     finals, _ = run_stream(labeler)
     assert [(f.speaker, f.voice) for f in finals] == [("s1", 0), ("s2", 1)]
-    assert all(s >= 1.0 for s in seen)
+    # The labeler gets the voiced seconds, not the buffer with its pre-roll and trailing silence.
+    assert all(abs(sec - 1.0) < 0.05 and n > sec for n, sec in seen)
 
 
 def test_muted_speech_is_not_labelled():
     calls = []
-    finals, _ = run_stream(lambda s: calls.append(1) or ("s1", 0), muted=True)
+    finals, _ = run_stream(lambda s, sec: calls.append(1) or ("s1", 0), muted=True)
     assert calls == [] and all(f.speaker is None for f in finals)
 
 
 def test_a_failed_label_keeps_the_line():
-    def labeler(samples):
+    def labeler(samples, seconds):
         raise RuntimeError("model gone")
 
     finals, errors = run_stream(labeler)

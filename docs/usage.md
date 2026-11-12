@@ -28,8 +28,8 @@ In person, everyone in the room reaches the same mic, so every line would read `
 How the labels behave:
 
 - **One label per line.** A line is one stretch of speech between pauses. When two people talk inside one line without a pause, it gets the label of whoever dominates it. Quick back-and-forth ("yeah", "right") is where most wrong labels come from.
-- **A new voice shows up on its second line.** The first line from someone new carries the closest known label; their own label starts with their next line longer than 1.5 seconds. A cough or a door slam heard once never becomes a speaker.
-- **Short lines never start a voice.** Under 1.5 seconds, a line takes the closest label.
+- **A new voice shows up on its second line.** The first line from someone new carries the closest known label; their own label starts with their next line of a second or more of speech. A cough or a door slam heard once never becomes a speaker.
+- **Short lines never start a voice.** A line with under a second of speech takes the closest label.
 - **The end of the run corrects them.** When the run stops, every line is clustered again with the whole meeting in hand, and a `relabel` event lists the lines whose label changed (most often each person's first line). Voices with under 20 seconds of speech (or a twentieth of the run's speech, if that is less) fold into the closest one. The live labels are kept wherever they still fit, so names given during the meeting stay on the right people. `copilot transcript` prints the run with these labels applied.
 - **Muted speech** is never labelled and never teaches the model a voice.
 

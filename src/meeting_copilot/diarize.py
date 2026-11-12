@@ -28,7 +28,7 @@ import numpy as np
 from meeting_copilot.vad import RATE
 
 THRESHOLD = 0.4
-MIN_NEW_S = 1.5
+MIN_NEW_S = 1.0  # seconds of speech, first voiced chunk to last
 CONFIRM = 2
 MIN_VOICE_S = 20.0
 
@@ -123,9 +123,10 @@ class Voices:
         # The pass may split a voice the live run missed, but it may not merge two voices that each talked enough:
         # with all the speech in hand, average linkage can pull two similar people together that the live
         # centroids kept apart. Then the live labels stand.
-        live_talk: dict[str, float] = {}
-        for lab, sec in zip(live, secs):
-            live_talk[lab] = live_talk.get(lab, 0.0) + sec
+        live_talk: dict[str, float] = {}  # each live voice's own speech; borrowed lines are not theirs
+        for lab, sec, mine in zip(live, secs, own):
+            if mine:
+                live_talk[lab] = live_talk.get(lab, 0.0) + sec
         if len(set(end)) < sum(1 for t in live_talk.values() if t >= floor):
             return live
         return end
@@ -186,18 +187,19 @@ class Embedder:
 
 
 class Diarizer:
-    """``embed`` plus ``Voices``, safe to call from a stream's final thread: ``label(samples)`` returns
-    ``(label, index)``."""
+    """``embed`` plus ``Voices``, safe to call from a stream's final thread: ``label(samples, seconds)`` returns
+    ``(label, index)``. ``seconds`` is the utterance's speech, first voiced chunk to last; the samples also hold
+    the pre-roll and the trailing silence, so their length overstates it."""
 
     def __init__(self, embed=None, voices: Voices | None = None) -> None:
         self.embed = embed if embed is not None else Embedder()
         self.voices = voices or Voices()
         self._lock = threading.Lock()
 
-    def label(self, samples: np.ndarray) -> tuple[str, int]:
+    def label(self, samples: np.ndarray, seconds: float | None = None) -> tuple[str, int]:
         emb = self.embed(samples)
         with self._lock:
-            return self.voices.assign(emb, len(samples) / RATE)
+            return self.voices.assign(emb, len(samples) / RATE if seconds is None else seconds)
 
     def relabel(self) -> list[str]:
         with self._lock:
