@@ -143,9 +143,9 @@ def test_system_voice_on_mac_and_windows(tmp_path, monkeypatch):
 
     calls = []
 
-    def run(args, input, check, capture_output):
+    def run(args, input, check, capture_output, env=None):
         calls.append((args, input))
-        path = next(a for a in args if a.endswith(".wav")) if "say" in args[0] else args[-1].split("'")[1]
+        path = next(a for a in args if a.endswith(".wav")) if "say" in args[0] else env["COPILOT_SPEECH_WAV"]
         with wave.open(path, "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050); w.writeframes(b"\x00\x00" * 2205)
 
@@ -153,7 +153,7 @@ def test_system_voice_on_mac_and_windows(tmp_path, monkeypatch):
         out = list(voice.SystemVoice(run=run, platform=platform).chunks("Hi 'there'"))
         assert out[0][1] == 22050 and len(out[0][0]) == 2205
     assert calls[0][0][0] == "say" and calls[0][1] == b"Hi 'there'"  # text on stdin, never on the command line
-    assert calls[1][0][0] == "powershell" and "Hi" not in calls[1][0][-1]
+    assert calls[1][0][0] == "powershell" and "Hi" not in calls[1][0][-1] and calls[1][1] == b"Hi 'there'"
     with pytest.raises(voice.Unavailable):
         voice.SystemVoice(platform="linux")
 

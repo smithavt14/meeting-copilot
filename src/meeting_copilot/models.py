@@ -22,12 +22,10 @@ def cache_dir() -> Path:
     env = os.environ.get("COPILOT_CACHE")
     if env:
         base = Path(env)
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Caches" / "meeting-copilot"
-    elif sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "meeting-copilot" / "Cache"
     else:
-        base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "meeting-copilot"
+        from meeting_copilot.platforms import cache_dir as platform_cache
+
+        base = platform_cache()
     base.mkdir(parents=True, exist_ok=True)
     return base
 

@@ -23,6 +23,8 @@ from typing import Callable, Iterator
 
 import numpy as np
 
+from meeting_copilot import platforms
+
 Chunks = Iterator[tuple[np.ndarray, int]]
 
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream?output_format=pcm_24000"
@@ -133,8 +135,8 @@ def sentences(text: str, max_chars: int = 160) -> list[str]:
 class SystemVoice:
     name = "system"
 
-    def __init__(self, run=subprocess.run, platform: str = sys.platform) -> None:
-        if platform not in ("darwin", "win32"):
+    def __init__(self, run=subprocess.run, platform: str | None = None) -> None:
+        if not platforms.has_system_voice(platform):
             raise Unavailable("the system voice is macOS say or Windows System.Speech")
         self._run = run
         self.platform = platform
@@ -144,15 +146,7 @@ class SystemVoice:
 
         with tempfile.TemporaryDirectory() as tmp:
             wav = Path(tmp) / "said.wav"
-            if self.platform == "darwin":
-                self._run(["say", "-o", str(wav), "--data-format=LEI16@22050", "-f", "-"], input=text.encode("utf-8"),
-                          check=True, capture_output=True)
-            else:
-                script = ("Add-Type -AssemblyName System.Speech; "
-                          "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                          f"$s.SetOutputToWaveFile('{wav}'); $s.Speak([Console]::In.ReadToEnd()); $s.Dispose()")
-                self._run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                          input=text.encode("utf-8"), check=True, capture_output=True)
+            platforms.system_speech(text, wav, 22050, run=self._run, platform=self.platform)
             x, rate, ch = read_wav(wav)
         yield x.mean(axis=1).astype(np.float32), rate
 

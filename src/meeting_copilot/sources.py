@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import wave
@@ -211,12 +210,59 @@ class MacTapSource:
                 self.proc.kill()
 
 
+class SilenceFill:
+    """Feeds silence into a stream whose source has gone quiet. WASAPI loopback delivers no buffers at all while
+    nothing plays, so without this an utterance that ends with the call going silent would never see the 500 ms of
+    silence that closes it, and would wait for the next sound."""
+
+    def __init__(self, on_audio: OnAudio, gap_s: float = 0.3, step_s: float = 0.1, clock=time.time) -> None:
+        self.on_audio = on_audio
+        self.gap_s = gap_s
+        self.step_s = step_s
+        self.clock = clock
+        self.last = clock()
+        self.lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def audio(self, samples: np.ndarray) -> None:
+        """Real audio from the source: passed on, and the gap clock restarts."""
+        with self.lock:
+            now = self.clock()
+            self.on_audio(samples, now)
+            self.last = now
+
+    def tick(self) -> bool:
+        """Feeds one step of silence when the source has been quiet for ``gap_s``. True when it did."""
+        with self.lock:
+            now = self.clock()
+            if now - self.last < self.gap_s:
+                return False
+            self.on_audio(np.zeros(int(RATE * self.step_s), dtype=np.float32), now)
+            self.last = now - self.gap_s + self.step_s  # the next step is due in step_s
+            return True
+
+    def start(self) -> None:
+        def run() -> None:
+            while not self._stop.wait(self.step_s / 2):
+                self.tick()
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
+
 class LoopbackSource:
     """Windows: WASAPI loopback of the default output device. It hears every app, notifications included."""
 
     def __init__(self) -> None:
         self._pa = None
         self._stream = None
+        self._fill: SilenceFill | None = None
         self.done = threading.Event()
 
     def start(self, on_audio: OnAudio, log: Log) -> None:
@@ -235,19 +281,22 @@ class LoopbackSource:
                 raise RuntimeError("no WASAPI loopback device for the default output")
         rate, ch = int(speakers["defaultSampleRate"]), int(speakers["maxInputChannels"])
         resample = Resampler(rate, ch)
+        fill = self._fill = SilenceFill(on_audio)
 
         def callback(in_data, frame_count, time_info, status):
-            x = np.frombuffer(in_data, dtype=np.float32)
-            on_audio(resample(x), time.time())
+            fill.audio(resample(np.frombuffer(in_data, dtype=np.float32)))
             return (None, pyaudio.paContinue)
 
         self._stream = pa.open(format=pyaudio.paFloat32, channels=ch, rate=rate, input=True,
                                input_device_index=speakers["index"], frames_per_buffer=int(rate * 0.1),
                                stream_callback=callback)
         self._stream.start_stream()
+        fill.start()
         log(f"loopback: {speakers['name']}")
 
     def stop(self) -> None:
+        if self._fill is not None:
+            self._fill.stop()
         if self._stream is not None:
             self._stream.stop_stream()
             self._stream.close()
@@ -255,14 +304,3 @@ class LoopbackSource:
             self._pa.terminate()
 
 
-def call_source(app: str | None, pid: int | None):
-    """The computer-audio source for this OS, or None when nothing asks for one."""
-    if sys.platform == "darwin":
-        if app or pid:
-            return MacTapSource(app=app, pid=pid)
-        return None
-    if sys.platform == "win32":
-        return LoopbackSource() if (app or pid) else None
-    if app or pid:
-        raise RuntimeError("computer audio capture runs on macOS and Windows only")
-    return None

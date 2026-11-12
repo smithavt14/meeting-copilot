@@ -33,10 +33,11 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from meeting_copilot import platforms
 from meeting_copilot.echo import EchoGate, SaidWindows
 from meeting_copilot.names import NameMatcher
 from meeting_copilot.pipeline import Draft, Final
@@ -47,7 +48,8 @@ STOP = "stop"
 
 
 def iso(t: float) -> str:
-    return datetime.fromtimestamp(t).astimezone().isoformat(timespec="milliseconds")
+    # From an aware UTC time: a naive one's astimezone() probes a day earlier, which Windows rejects near the epoch.
+    return datetime.fromtimestamp(t, timezone.utc).astimezone().isoformat(timespec="milliseconds")
 
 
 def parse_iso(s) -> float | None:
@@ -99,11 +101,7 @@ def default_out() -> Path:
     env = os.environ.get("COPILOT_OUT")
     if env:
         return Path(env)
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "meeting-copilot" / "out"
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "meeting-copilot" / "out"
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "meeting-copilot" / "out"
+    return platforms.data_dir() / "out"
 
 
 def new_run_dir(out: Path) -> Path:
@@ -175,7 +173,7 @@ def reserve(out: Path) -> None:
             if pid and pid_alive(pid):
                 raise RunBusy(pid)
             try:
-                path.unlink()
+                _retry(path.unlink)
             except FileNotFoundError:
                 pass
             continue
@@ -185,11 +183,23 @@ def reserve(out: Path) -> None:
     raise RuntimeError(f"cannot claim {path}")
 
 
+def _retry(op: Callable[[], object], tries: int = 20, wait_s: float = 0.05):
+    """Runs ``op``, retrying a PermissionError: on Windows a file another process has open for reading (``wake``
+    polling ``current.json``) cannot be replaced or removed for that moment."""
+    for i in range(tries):
+        try:
+            return op()
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(wait_s)
+
+
 def publish(out: Path, run_dir: Path) -> None:
     """Names the run directory in this process's ``current.json`` (atomic replace)."""
     tmp = out / f"{CURRENT}.{os.getpid()}.tmp"
     tmp.write_text(json.dumps({"pid": os.getpid(), "dir": str(run_dir.resolve())}))
-    os.replace(tmp, out / CURRENT)
+    _retry(lambda: os.replace(tmp, out / CURRENT))
 
 
 def release(out: Path) -> None:
@@ -197,7 +207,7 @@ def release(out: Path) -> None:
     cur = read_current(out)
     if cur and int(cur.get("pid") or 0) == os.getpid():
         try:
-            (out / CURRENT).unlink()
+            _retry((out / CURRENT).unlink)
         except FileNotFoundError:
             pass
 
@@ -210,24 +220,7 @@ def run_pid(events: list[dict]) -> int | None:
     return None
 
 
-def pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        import ctypes
-
-        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        ctypes.windll.kernel32.CloseHandle(h)
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+pid_alive = platforms.pid_alive
 
 
 def running_pid(out: Path) -> int | None:
