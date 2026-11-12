@@ -94,3 +94,27 @@ def test_no_color_and_non_tty_get_plain_text(tmp_path, monkeypatch):
     out = io.StringIO()
     tail(tmp_path, tty=False, stream=out, sleep=lambda s: None, alive=lambda p: True)
     assert "\033" not in out.getvalue()
+
+
+def test_drafts_fit_a_terminal_narrowed_after_start(tmp_path, monkeypatch):
+    """A draft wider than the terminal wraps, and the in-place redraw then leaves its top row behind."""
+    import os
+    import shutil
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    sizes = iter([120, 120, 54, 54, 54])
+    monkeypatch.setattr(shutil, "get_terminal_size", lambda fallback=None: os.terminal_size((next(sizes, 54), 24)))
+    long = "well there's a lot of anti AI movements on college campuses and a lot of them are prohibited"
+    write(tmp_path, [
+        {"ev": "start", "pid": 1},
+        {"ev": "draft", "speaker": "me", "utt": 1, "text": long[:40]},
+        {"ev": "draft", "speaker": "me", "utt": 1, "text": long[:70]},
+        {"ev": "draft", "speaker": "me", "utt": 1, "text": long},
+        {"ev": "line", "n": 1, "speaker": "me", "text": "Done.", "utt": 1},
+        {"ev": "stop"},
+    ])
+    out = io.StringIO()
+    tail(tmp_path, tty=True, stream=out, sleep=lambda s: None, alive=lambda p: True)
+    rows = [r for chunk in out.getvalue().split("\r\033[K") for r in chunk.split("\n") if r.startswith("... ")]
+    assert rows and all(len(r) < 54 for r in rows[2:])
+    assert rows[-1].endswith("are prohibited")

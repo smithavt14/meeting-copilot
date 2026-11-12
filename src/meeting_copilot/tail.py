@@ -49,13 +49,14 @@ def tail(run_dir: str | Path, since: int = 0, tty: bool = False, stream: TextIO 
     shown = False
     muted = False
     pid = None
-    if width is None:
-        try:
-            import shutil
 
-            width = shutil.get_terminal_size().columns
-        except OSError:
-            width = 100
+    def cols() -> int:
+        """The terminal width now, read on every redraw: a pane resized after start must not wrap a draft."""
+        if width is not None:
+            return width
+        import shutil
+
+        return shutil.get_terminal_size((100, 24)).columns
 
     def clear() -> None:
         nonlocal shown
@@ -69,9 +70,11 @@ def tail(run_dir: str | Path, since: int = 0, tty: bool = False, stream: TextIO 
             return
         clear()
         if drafts and not muted:
+            # One row only: "\r\033[K" clears just the cursor's row, so a wrapped draft would leave its top row behind.
+            room = max(cols() - 2, 10)
             text = "... " + "  |  ".join(f"{k[0]}: {v}" for k, v in drafts.items())
-            if len(text) > width - 1:
-                text = "... " + text[len(text) - (width - 5):]  # keep the newest words in view
+            if len(text) > room:
+                text = "... " + text[len(text) - (room - 4):]  # keep the newest words in view
             out.write(f"{DIM}{text}{RESET}" if color else text)
             shown = True
         out.flush()
