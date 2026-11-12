@@ -92,7 +92,7 @@ class Follower:
 def append_event(path: Path, ev: str, **fields) -> None:
     """One event appended by another process (``copilot say``): a single write of one line."""
     line = json.dumps({"ev": ev, **fields}, ensure_ascii=False) + "\n"
-    with open(path, "a", encoding="utf-8") as f:
+    with platforms.open_append(path) as f:
         f.write(line)
 
 
@@ -244,7 +244,7 @@ class Recorder:
         self.status = status
         self.tty = tty
         self._lock = threading.RLock()
-        self._f = open(self.path, "a", encoding="utf-8")
+        self._f = platforms.open_append(self.path)
         self.n = 0
         self.d = 0
         self.lines: list[dict] = []

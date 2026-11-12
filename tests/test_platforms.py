@@ -78,6 +78,33 @@ def test_ansi_tty_is_false_for_a_pipe_or_buffer():
     assert not platforms.ansi_tty(io.StringIO())
 
 
+APPENDER = """
+import sys
+sys.path.insert(0, sys.argv[3])
+from meeting_copilot.run import append_event
+for i in range(int(sys.argv[2])):
+    append_event(sys.argv[1], "line", who=sys.argv[4], i=i, text="x" * 200)
+"""
+
+
+def test_two_processes_appending_never_overwrite_each_other(tmp_path):
+    import json
+
+    path = tmp_path / "lines.jsonl"
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    procs = [subprocess.Popen([sys.executable, "-c", APPENDER, str(path), "400", src, who]) for who in "ab"]
+    with platforms.open_append(path) as f:  # this process too, the way the listener holds the file open
+        for i in range(400):
+            f.write(json.dumps({"ev": "line", "who": "c", "i": i}) + "\n")
+            f.flush()
+    assert all(p.wait(timeout=60) == 0 for p in procs)
+    raw = path.read_bytes()
+    assert b"\r" not in raw
+    events = [json.loads(line) for line in raw.decode("utf-8").splitlines()]
+    for who in "abc":
+        assert sorted(e["i"] for e in events if e["who"] == who) == list(range(400))
+
+
 def test_iso_near_the_epoch_round_trips():
     # Tests use small timestamps; a naive datetime's astimezone() fails on Windows for these.
     assert abs(parse_iso(iso(100.0)) - 100.0) < 0.001

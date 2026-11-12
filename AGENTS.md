@@ -9,7 +9,7 @@ Before anything else, tell the user that this records and transcribes everyone i
 1. **Check the prerequisites.** It runs on macOS and Windows.
    - On every machine: uv (`uv --version`; if it is missing, point the user to https://docs.astral.sh/uv/ and stop until it is installed) and git.
    - On a Mac: macOS 14.4 or newer (`sw_vers -productVersion`) and the Xcode command line tools (`xcode-select -p`). If the tools are missing, ask the user to run `xcode-select --install`; it opens a dialog only they can click.
-   - On Windows: Windows 10 or 11. Tell the user the Windows path is untested.
+   - On Windows: Windows 10 or 11 on x64. Tell the user live capture on Windows has not been tried on a real call yet (see the Windows section of `docs/usage.md`).
 2. **Install.** From the repo root:
    ```sh
    uv tool install --python 3.12 --editable .
@@ -25,8 +25,8 @@ Before anything else, tell the user that this records and transcribes everyone i
    scripts/build-tap.sh
    ```
    It ends by printing the path `.../tap/build/tap`.
-5. **The step only the user can do (macOS).** Ask the user to open System Settings > Privacy & Security > Screen & System Audio Recording, and under "System Audio Recording Only" turn on the app that will run `copilot` (their terminal, or the app hosting their Claude Code session). The microphone permission is asked for by macOS the first time `copilot listen` opens the mic; tell them to click Allow. You cannot grant either one.
-6. **Verify** with generated speech (macOS, which has `say`):
+5. **The step only the user can do.** On Windows, ask the user to check Settings > Privacy & security > Microphone > "Let desktop apps access your microphone". On macOS: Ask the user to open System Settings > Privacy & Security > Screen & System Audio Recording, and under "System Audio Recording Only" turn on the app that will run `copilot` (their terminal, or the app hosting their Claude Code session). The microphone permission is asked for by macOS the first time `copilot listen` opens the mic; tell them to click Allow. You cannot grant either one.
+6. **Verify** with generated speech (the system voice: `say` on macOS, System.Speech on Windows):
    ```sh
    uv run python scripts/make_sample.py /tmp/copilot-sample.wav
    COPILOT_OUT=/tmp/copilot-check copilot listen --file /tmp/copilot-sample.wav
@@ -41,7 +41,7 @@ Before anything else, tell the user that this records and transcribes everyone i
    [6 10:04:59] call: Claude, remind me what we decided about the launch date.
    stopped: 6 lines, 18 drafts, 0 echo lines dropped
    ```
-   Small wording differences are fine. Then `copilot say "Setup is done."` should speak and print `said with kokoro (...)`. On Windows, record any short WAV and use that instead of `make_sample.py`.
+   Small wording differences are fine. Then `copilot say "Setup is done."` should speak and print `said with kokoro (...)`. On Windows, use a path such as `$env:TEMP\copilot-sample.wav` and set `$env:COPILOT_OUT` in PowerShell.
 7. **Settings (optional).** Put the user's settings (wake name, voice, transcription) in the per-user file, since the skill runs `copilot` from whatever directory the session is in: `~/Library/Application Support/meeting-copilot/copilot.toml` on macOS, `%APPDATA%\meeting-copilot\copilot.toml` on Windows. The keys are in the Settings section of `docs/usage.md`. A `./copilot.toml` is read on top of it, and flags win.
 8. **Install the skill** so it works from any project, for the agent you are (and any others the user names). From the repo root, link `skills/meeting-copilot` into that agent's skills folder:
    ```sh
@@ -63,9 +63,9 @@ The skill in `skills/meeting-copilot/SKILL.md` runs this loop; follow it when th
 
 ## Working on this repo
 
-- `src/meeting_copilot/`: `cli.py` (commands and settings), `pipeline.py` (VAD cutting, drafts, the shared transcription slot), `diarize.py` (voice labels for `--diarize`), `vad.py`, `transcribe.py` (Parakeet, OpenRouter), `sources.py` (mic, Mac tap, Windows loopback, WAV file), `echo.py` (call and said echo), `names.py` (wake name, mute commands), `run.py` (the run file, its lock, the recorder), `wake.py`, `tail.py`, `voice.py` (`copilot say`), `models.py` (downloads).
+- `src/meeting_copilot/`: `cli.py` (commands and settings), `pipeline.py` (VAD cutting, drafts, the shared transcription slot), `diarize.py` (voice labels for `--diarize`), `vad.py`, `transcribe.py` (Parakeet, OpenRouter), `platforms.py` (every macOS/Windows difference: directories, process checks, the terminal, the call source, the system voice; nothing else reads `sys.platform`), `sources.py` (mic, Mac tap, Windows loopback, WAV file), `echo.py` (call and said echo), `names.py` (wake name, mute commands), `run.py` (the run file, its lock, the recorder), `wake.py`, `tail.py`, `voice.py` (`copilot say`), `models.py` (downloads).
 - `tap/`: the Swift process-tap binary. `scripts/build-tap.sh` builds it.
 - `skills/meeting-copilot/SKILL.md`: the skill, for any agent. `.claude/skills/meeting-copilot` and `.agents/skills/meeting-copilot` are links to it, so Claude Code and Codex load it in this repo.
-- Tests: `uv run pytest`. Tests use synthetic audio and mocks; one end-to-end test uses macOS `say` and the downloaded models and skips without them. Never add real recordings or transcripts as fixtures.
+- Tests: `uv run pytest`. Tests use synthetic audio and mocks; the end-to-end tests use the system voice and the downloaded models and skip without them. CI (`.github/workflows/test.yml`) runs them on macos-latest and windows-latest. Never add real recordings or transcripts as fixtures.
 - Runs go to `$COPILOT_OUT`, else `--out`, else a per-user data directory (`~/Library/Application Support/meeting-copilot/out` on macOS, `%LOCALAPPDATA%\meeting-copilot\out` on Windows). Only one `listen` runs per directory. When testing next to a real run, always set `COPILOT_OUT` (or `--out`) to a scratch directory so you neither collide with it nor write into it. Models live in the user cache (`COPILOT_CACHE` overrides). The per-user settings file is `COPILOT_CONFIG` when set; tests point it at an empty temp path (`tests/conftest.py`) so they never read the real one.
 - After changing anything under `tap/`, run `scripts/build-tap.sh`.

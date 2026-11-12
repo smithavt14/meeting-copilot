@@ -3,6 +3,7 @@ never reads ``sys.platform`` itself.
 
 - Per-user directories: settings, run output, model cache.
 - Whether a process is alive (``os.kill(pid, 0)`` ends the process on Windows, so it is never used there).
+- Appending to a file that several processes append to (the run's ``lines.jsonl``).
 - The terminal: ANSI escapes need VT mode switched on in a Windows console, and piped output needs UTF-8.
 - The call's audio: a Core Audio process tap on macOS, WASAPI loopback on Windows.
 - The system voice: ``say`` on macOS, System.Speech through PowerShell on Windows.
@@ -91,6 +92,33 @@ def _pid_alive_windows(pid: int) -> bool:
         return code.value == 259  # STILL_ACTIVE
     finally:
         k32.CloseHandle(handle)
+
+
+# Files
+
+def open_append(path: str | Path) -> TextIO:
+    """Opens ``path`` for appending UTF-8 text with ``\n`` line ends, such that whole writes from several processes
+    never overwrite each other. POSIX ``O_APPEND`` does that already. On Windows a plain append is a seek and then a
+    write, so two processes can land on the same offset; a handle opened with FILE_APPEND_DATA and no FILE_WRITE_DATA
+    makes the system put every write at the end of the file."""
+    if _os() != "win32":
+        return open(path, "a", encoding="utf-8", newline="\n")
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                wintypes.DWORD, wintypes.HANDLE)
+    file_append_data, synchronize = 0x0004, 0x00100000
+    share_all = 0x1 | 0x2 | 0x4  # read, write, delete: readers and other appenders keep working
+    open_always, normal = 4, 0x80
+    handle = k32.CreateFileW(str(path), file_append_data | synchronize, share_all, None, open_always, normal, None)
+    if handle is None or handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    fd = msvcrt.open_osfhandle(handle, os.O_WRONLY)
+    return open(fd, "a", encoding="utf-8", newline="\n")
 
 
 # The terminal
