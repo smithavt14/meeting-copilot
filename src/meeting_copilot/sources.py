@@ -215,10 +215,12 @@ class SilenceFill:
     nothing plays, so without this an utterance that ends with the call going silent would never see the 500 ms of
     silence that closes it, and would wait for the next sound."""
 
-    def __init__(self, on_audio: OnAudio, gap_s: float = 0.3, step_s: float = 0.1, clock=time.time) -> None:
+    def __init__(self, on_audio: OnAudio, gap_s: float = 0.3, step_s: float = 0.1, max_fill_s: float = 2.0,
+                 clock=time.time) -> None:
         self.on_audio = on_audio
         self.gap_s = gap_s
         self.step_s = step_s
+        self.max_fill_s = max_fill_s  # enough to close any utterance; a longer gap (a suspend) is skipped, not fed
         self.clock = clock
         self.fed = clock()  # the time up to which the stream has audio, real or filled
         self.filling = False
@@ -227,9 +229,12 @@ class SilenceFill:
         self._thread: threading.Thread | None = None
 
     def audio(self, samples: np.ndarray) -> None:
-        """Real audio from the source: passed on, and the gap clock restarts."""
+        """Real audio from the source: the rest of a gap's silence first, then the audio, and the gap clock restarts."""
         with self.lock:
             now = self.clock()
+            start = now - len(samples) / RATE
+            if self.filling and start > self.fed:
+                self._silence(start - self.fed, start)
             self.on_audio(samples, now)
             self.fed = now
             self.filling = False
@@ -242,11 +247,15 @@ class SilenceFill:
             due = self.step_s if self.filling else self.gap_s
             if now - self.fed < due:
                 return False
-            n = int(round((now - self.fed) * RATE))
-            self.on_audio(np.zeros(n, dtype=np.float32), now)
-            self.fed += n / RATE
+            self._silence(now - self.fed, now)
             self.filling = True
             return True
+
+    def _silence(self, seconds: float, until: float) -> None:
+        n = int(round(min(seconds, self.max_fill_s) * RATE))
+        if n > 0:
+            self.on_audio(np.zeros(n, dtype=np.float32), until)
+        self.fed = until
 
     def start(self) -> None:
         def run() -> None:

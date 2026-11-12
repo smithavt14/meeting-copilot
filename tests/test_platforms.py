@@ -129,6 +129,20 @@ def test_silence_fill_feeds_silence_only_in_a_gap():
     assert sum(n for n, _ in got[1:3]) == 7200  # silence fed equals the 450 ms gap
 
 
+def test_silence_fill_tops_up_the_gap_when_audio_resumes_and_caps_a_long_one():
+    now = [0.0]
+    got = []
+    fill = SilenceFill(lambda x, t: got.append(len(x)), gap_s=0.3, step_s=0.1, max_fill_s=2.0, clock=lambda: now[0])
+    fill.audio(np.ones(1600, dtype=np.float32))
+    now[0] = 0.33
+    fill.tick()  # 330 ms filled
+    now[0] = 0.62  # a 100 ms buffer arrives, covering 0.52 to 0.62: 190 ms of the pause is still unfed
+    fill.audio(np.ones(1600, dtype=np.float32))
+    assert got[1:] == [5280, 3040, 1600]
+    now[0] = 8 * 3600.0  # a suspend: only max_fill_s of silence, never hours of samples
+    assert fill.tick() and got[-1] == 32000
+
+
 def test_a_600_ms_bufferless_pause_still_splits_two_utterances():
     """Codex review: the gap fed to the stream must be as long as the real pause, or 500 ms of silence never shows."""
     from meeting_copilot.pipeline import Handlers, Scheduler, Stream
