@@ -28,7 +28,7 @@ For example:
 
 ## How it works
 
-copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. Your agent reads those lines with `copilot wake` and answers in text when someone says "Claude, ...", or out loud through `copilot say` when you ask it to. Nothing joins the call. It runs on macOS and Windows; the Windows path is untested so far.
+copilot listens to two audio streams, your microphone (`me`) and the computer's audio (`call`), cuts them into utterances, transcribes them, and appends numbered lines to a JSONL file. Your agent reads those lines with `copilot wake` and answers in text when someone says "Claude, ...", or out loud through `copilot say` when you ask it to. Nothing joins the call. It runs on macOS and Windows.
 
 ```
 mic ──────────────┐
@@ -66,9 +66,17 @@ Two permissions, both for the app you run `copilot` from (Terminal, iTerm, Ghost
 
 `tap/build/tap --list` shows the processes Core Audio knows about, and which are playing.
 
-### Windows (untested)
+### Windows
 
-No extra build step: the call's audio is WASAPI loopback through PyAudioWPatch, installed with the rest. Loopback hears **everything** the default speakers play, including notifications and music, so mute other apps during a call. Capturing a single app is a later step. Nobody has run this path on a Windows machine yet; reports welcome.
+Windows 10 or 11 on x64. Install uv from PowerShell (`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`) and git, then run the same three commands as above in PowerShell or Windows Terminal. There is no build step.
+
+- **Transcription** is the same local Parakeet through sherpa-onnx, on the CPU, or `--transcribe cloud`.
+- **The call's audio** is WASAPI loopback of the default output device, through PyAudioWPatch (installed with the rest): `copilot listen --loopback`. Set the meeting app to play through the default device. Loopback hears **everything** that device plays, notifications and music included, so mute other apps during a call. `--app` and `--pid` are macOS only; on Windows they fall back to loopback.
+- **The mic** needs Settings > Privacy & security > Microphone > "Let desktop apps access your microphone" turned on.
+- **The voice** is Kokoro (espeak-ng comes inside its wheel) or `voice = "system"`, which is Windows System.Speech.
+- **Paths:** settings in `%APPDATA%\meeting-copilot\copilot.toml`, runs in `%LOCALAPPDATA%\meeting-copilot\out`, models in `%LOCALAPPDATA%\meeting-copilot\Cache`. In PowerShell, set a variable with `$env:COPILOT_OUT = "C:\scratch\runs"`.
+
+The tests, the transcription models, Kokoro and System.Speech run on Windows in CI. Live capture from a real mic and a real call has not been run on a Windows machine yet; [docs/usage.md](docs/usage.md#windows) has the known limits and how to check it.
 
 ## Use
 
@@ -120,7 +128,7 @@ The wake name defaults to "Claude". If you run it from another agent and would r
 `copilot listen --file <wav>` plays a WAV file through the same VAD, transcription and echo path, at real time (`--speed 0` for as fast as possible), as the `call` stream (`--as me` for the mic stream).
 
 ```sh
-uv run python scripts/make_sample.py sample.wav   # macOS: invented sentences spoken by `say`
+uv run python scripts/make_sample.py sample.wav   # invented sentences spoken by the system voice
 copilot listen --file sample.wav
 uv run pytest
 ```

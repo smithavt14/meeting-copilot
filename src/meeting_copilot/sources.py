@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import wave
@@ -211,12 +210,74 @@ class MacTapSource:
                 self.proc.kill()
 
 
+class SilenceFill:
+    """Feeds silence into a stream whose source has gone quiet. WASAPI loopback delivers no buffers at all while
+    nothing plays, so without this an utterance that ends with the call going silent would never see the 500 ms of
+    silence that closes it, and would wait for the next sound."""
+
+    def __init__(self, on_audio: OnAudio, gap_s: float = 0.3, step_s: float = 0.1, max_fill_s: float = 2.0,
+                 clock=time.time) -> None:
+        self.on_audio = on_audio
+        self.gap_s = gap_s
+        self.step_s = step_s
+        self.max_fill_s = max_fill_s  # enough to close any utterance; a longer gap (a suspend) is skipped, not fed
+        self.clock = clock
+        self.fed = clock()  # the time up to which the stream has audio, real or filled
+        self.filling = False
+        self.lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def audio(self, samples: np.ndarray) -> None:
+        """Real audio from the source: the rest of a gap's silence first, then the audio, and the gap clock restarts."""
+        with self.lock:
+            now = self.clock()
+            start = now - len(samples) / RATE
+            if self.filling and start > self.fed:
+                self._silence(start - self.fed, start)
+            self.on_audio(samples, now)
+            self.fed = now
+            self.filling = False
+
+    def tick(self) -> bool:
+        """Once the source has been quiet for ``gap_s``, feeds silence for the whole time since its last audio, then
+        keeps up every ``step_s``, so the stream sees a pause as long as it really was. True when it fed some."""
+        with self.lock:
+            now = self.clock()
+            due = self.step_s if self.filling else self.gap_s
+            if now - self.fed < due:
+                return False
+            self._silence(now - self.fed, now)
+            self.filling = True
+            return True
+
+    def _silence(self, seconds: float, until: float) -> None:
+        n = int(round(min(seconds, self.max_fill_s) * RATE))
+        if n > 0:
+            self.on_audio(np.zeros(n, dtype=np.float32), until)
+        self.fed = until
+
+    def start(self) -> None:
+        def run() -> None:
+            while not self._stop.wait(self.step_s / 2):
+                self.tick()
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
+
 class LoopbackSource:
     """Windows: WASAPI loopback of the default output device. It hears every app, notifications included."""
 
     def __init__(self) -> None:
         self._pa = None
         self._stream = None
+        self._fill: SilenceFill | None = None
         self.done = threading.Event()
 
     def start(self, on_audio: OnAudio, log: Log) -> None:
@@ -235,19 +296,22 @@ class LoopbackSource:
                 raise RuntimeError("no WASAPI loopback device for the default output")
         rate, ch = int(speakers["defaultSampleRate"]), int(speakers["maxInputChannels"])
         resample = Resampler(rate, ch)
+        fill = self._fill = SilenceFill(on_audio)
 
         def callback(in_data, frame_count, time_info, status):
-            x = np.frombuffer(in_data, dtype=np.float32)
-            on_audio(resample(x), time.time())
+            fill.audio(resample(np.frombuffer(in_data, dtype=np.float32)))
             return (None, pyaudio.paContinue)
 
         self._stream = pa.open(format=pyaudio.paFloat32, channels=ch, rate=rate, input=True,
                                input_device_index=speakers["index"], frames_per_buffer=int(rate * 0.1),
                                stream_callback=callback)
         self._stream.start_stream()
+        fill.start()
         log(f"loopback: {speakers['name']}")
 
     def stop(self) -> None:
+        if self._fill is not None:
+            self._fill.stop()
         if self._stream is not None:
             self._stream.stop_stream()
             self._stream.close()
@@ -255,14 +319,3 @@ class LoopbackSource:
             self._pa.terminate()
 
 
-def call_source(app: str | None, pid: int | None):
-    """The computer-audio source for this OS, or None when nothing asks for one."""
-    if sys.platform == "darwin":
-        if app or pid:
-            return MacTapSource(app=app, pid=pid)
-        return None
-    if sys.platform == "win32":
-        return LoopbackSource() if (app or pid) else None
-    if app or pid:
-        raise RuntimeError("computer audio capture runs on macOS and Windows only")
-    return None

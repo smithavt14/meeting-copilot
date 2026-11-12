@@ -1,15 +1,17 @@
-"""Make a sample meeting WAV from invented sentences with macOS ``say``, for ``copilot listen --file``.
+"""Make a sample meeting WAV from invented sentences spoken by the system voice (macOS ``say``, Windows
+System.Speech), for ``copilot listen --file``.
 
     uv run python scripts/make_sample.py sample.wav
 """
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 import wave
 from pathlib import Path
+
+from meeting_copilot.platforms import system_speech
 
 SENTENCES = [
     "Good morning everyone, thanks for joining the planning call.",
@@ -24,7 +26,7 @@ RATE = 16000
 
 
 def say(text: str, path: Path) -> bytes:
-    subprocess.run(["say", "-o", str(path), f"--data-format=LEI16@{RATE}", text], check=True)
+    system_speech(text, path, RATE)
     with wave.open(str(path), "rb") as w:
         return w.readframes(w.getnframes())
 

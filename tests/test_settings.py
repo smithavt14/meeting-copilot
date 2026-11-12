@@ -37,7 +37,7 @@ def test_no_files_gives_defaults(tmp_path, monkeypatch):
 def test_platform_paths(monkeypatch):
     monkeypatch.delenv("COPILOT_CONFIG")
     monkeypatch.setattr("sys.platform", "darwin")
-    assert str(user_config()).endswith("Library/Application Support/meeting-copilot/copilot.toml")
+    assert user_config().parts[-4:] == ("Library", "Application Support", "meeting-copilot", "copilot.toml")
 
 
 def test_custom_name_drops_claudes_mishearings(tmp_path, monkeypatch):

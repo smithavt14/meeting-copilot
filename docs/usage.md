@@ -1,6 +1,6 @@
 # copilot: usage reference
 
-The details behind the README's Use section: mute, voice, transcription, speakers in a room, drafts, the output file, `wake`, and every setting.
+The details behind the README's Use section: mute, voice, transcription, speakers in a room, drafts, the output file, `wake`, Windows, and every setting.
 
 ## Mute
 
@@ -79,6 +79,36 @@ Blocks until one of these, then prints the new lines and `--- seen=<n> drafts=<d
 - 10 minutes pass (`TIMEOUT`, `--max-wait` in seconds).
 
 Pass `seen` and `drafts` back as `--since` and `--drafts-since` next time. Started a moment before `listen`, it waits up to 15 seconds for the run to appear.
+
+## Windows
+
+Install with uv exactly as on a Mac (`uv tool install --python 3.12 --editable .`, then `copilot download`), from PowerShell or Windows Terminal. Every command works the same; the differences are below.
+
+| | macOS | Windows |
+|---|---|---|
+| Call audio | Core Audio process tap of one app (`--app`) | WASAPI loopback of the default output device (`--loopback`) |
+| Build step | `scripts/build-tap.sh` | none |
+| Transcription | Parakeet through sherpa-onnx, or cloud | the same |
+| System voice | `say` | System.Speech, through PowerShell |
+| Settings file | `~/Library/Application Support/meeting-copilot/copilot.toml` | `%APPDATA%\meeting-copilot\copilot.toml` |
+| Runs | `~/Library/Application Support/meeting-copilot/out` | `%LOCALAPPDATA%\meeting-copilot\out` |
+| Models | `~/Library/Caches/meeting-copilot` | `%LOCALAPPDATA%\meeting-copilot\Cache` |
+
+Known limits:
+
+- **Loopback hears the whole device.** Every app on the default output device is the `call` stream, notifications included. `--app` and `--pid` print a note and use loopback. A meeting app set to a different output device is not heard.
+- **Silence.** WASAPI delivers nothing while no app plays sound; the listener fills those gaps with silence so the last utterance before a pause still ends on time.
+- **Bluetooth headsets** switch to their low-quality hands-free profile while their mic is open, which lowers transcription accuracy on both streams. A wired or USB headset avoids it.
+- **Windows on ARM** has not been tried.
+- **Colour and the draft line** in `copilot tail` need a console with VT processing (Windows Terminal, or PowerShell 5.1 and newer on Windows 10 1607 and later). Where it cannot be switched on, `tail` prints plain lines without drafts.
+- In PowerShell, environment variables are set with `$env:NAME = "value"`, so `listen` prints the tail command with `--out` instead of `COPILOT_OUT=...`.
+
+To check a Windows machine end to end:
+
+1. `uv run python scripts/make_sample.py sample.wav`, then `copilot listen --file sample.wav`: six lines, as in AGENTS.md step 6.
+2. `copilot say "Setup is done."`: it speaks and prints `said with kokoro (...)`.
+3. `copilot listen --loopback` with a YouTube talk playing in a browser, then pause it mid-sentence: lines arrive as `call`, and the sentence cut off by the pause ends within a second.
+4. Talk over it: your lines arrive as `me` (the mic). `copilot tail` in a second Windows Terminal tab shows coloured speakers and a dimmed draft line. `copilot stop` from a third ends the run.
 
 ## Settings
 

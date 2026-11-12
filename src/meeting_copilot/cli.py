@@ -13,6 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
+from meeting_copilot import platforms
 from meeting_copilot import run as runmod
 from meeting_copilot.names import DEFAULT_NAME, DEFAULT_OPENING_VARIANTS, DEFAULT_VARIANTS, NameMatcher
 from meeting_copilot.transcribe import DEFAULT_CLOUD_MODEL
@@ -48,11 +49,7 @@ def user_config() -> Path:
     env = os.environ.get("COPILOT_CONFIG")
     if env:
         return Path(env)
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "meeting-copilot" / "copilot.toml"
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "meeting-copilot" / "copilot.toml"
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "meeting-copilot" / "copilot.toml"
+    return platforms.config_dir() / "copilot.toml"
 
 
 def load_settings(path: str | None) -> dict:
@@ -109,7 +106,7 @@ class Pump:
 
 
 def cmd_listen(a: argparse.Namespace) -> int:
-    from meeting_copilot.sources import FileSource, LoopbackSource, MacTapSource, MicSource
+    from meeting_copilot.sources import FileSource, MicSource
 
     s = load_settings(a.config)
     for key in ("name", "transcribe", "cloud_model", "language", "draft_ms", "diarize"):
@@ -128,18 +125,13 @@ def cmd_listen(a: argparse.Namespace) -> int:
     else:
         if not a.no_mic:
             sources["me"] = MicSource(a.mic_device)
-        if sys.platform == "win32" and (a.loopback or a.app):
-            if a.app:
-                log("Windows loopback hears every app; --app is ignored")
-            sources["call"] = LoopbackSource()
-        elif a.app or a.pid:
-            if sys.platform != "darwin":
-                log("--app needs macOS 14.4 or newer (or --loopback on Windows)")
-                return 1
-            sources["call"] = MacTapSource(app=a.app, pid=a.pid)
-        elif a.loopback:
-            log("--loopback is for Windows; on a Mac use --app <name>")
+        try:
+            call = platforms.call_source(a.app, a.pid, a.loopback, log)
+        except ValueError as e:
+            log(str(e))
             return 1
+        if call is not None:
+            sources["call"] = call
     if not sources:
         log("nothing to listen to: drop --no-mic, or add --app, --loopback or --file")
         return 1
@@ -160,8 +152,10 @@ def tail_command(a: argparse.Namespace) -> str:
     """The exact ``copilot tail`` command for this run's output directory."""
     if a.out:
         return f'copilot --out "{a.out}" tail'
-    if os.environ.get("COPILOT_OUT"):
-        return f'COPILOT_OUT="{os.environ["COPILOT_OUT"]}" copilot tail'
+    env = os.environ.get("COPILOT_OUT")
+    if env:
+        prefix = platforms.env_prefix("COPILOT_OUT", env)
+        return f"{prefix}copilot tail" if prefix is not None else f'copilot --out "{env}" tail'
     return "copilot tail"
 
 
@@ -192,7 +186,7 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
     run_dir = runmod.new_run_dir(out)
     names = matcher(s)
     rec = runmod.Recorder(run_dir, names, echo={"me", "call"} <= set(sources), status=log,
-                          tty=sys.stdout.isatty())
+                          tty=platforms.ansi_tty(sys.stdout))
     scheduler = Scheduler(engine)
     if s["transcribe"] == "cloud":
         # Muted audio stays on this machine when Parakeet is installed; otherwise only short utterances go out.
@@ -332,7 +326,7 @@ def cmd_tail(a: argparse.Namespace) -> int:
         log("no run found")
         return 2
     try:
-        return tail(run_dir, a.since, tty=sys.stdout.isatty())
+        return tail(run_dir, a.since, tty=platforms.ansi_tty(sys.stdout))
     except KeyboardInterrupt:
         return 0
 
@@ -516,6 +510,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    platforms.setup_stdio()
     a = parser().parse_args(argv)
     return a.func(a)
 

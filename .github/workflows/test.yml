@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      COPILOT_CACHE: ${{ github.workspace }}/.models
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      # The models (about 880 MB) let the end-to-end tests run Silero, Parakeet and Kokoro on the runner.
+      - uses: actions/cache@v4
+        with:
+          path: .models
+          key: models-v1-${{ runner.os }}
+      - run: uv run copilot download --diarize
+      - run: uv run pytest -q -rs
