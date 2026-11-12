@@ -19,7 +19,7 @@ Before anything else, tell the user that this records and transcribes everyone i
    ```sh
    copilot download
    ```
-   It ends with `models ready in <dir>`. If they choose hosted, skip it; the 2 MB VAD model downloads on the first `copilot listen`, and step 6's check needs `--transcribe cloud` and `copilot say --voice system`.
+   It ends with `models ready in <dir>`. For in-person meetings where people should be told apart (`copilot listen --diarize`), add `--diarize` to also fetch the 40 MB speaker model. If they choose hosted, skip it; the 2 MB VAD model downloads on the first `copilot listen`, and step 6's check needs `--transcribe cloud` and `copilot say --voice system`.
 4. **Build the tap (macOS only).**
    ```sh
    scripts/build-tap.sh
@@ -52,7 +52,7 @@ Before anything else, tell the user that this records and transcribes everyone i
 
 ## Run it
 
-- Start listening, in the background: `copilot listen --app "Google Chrome"` (or `zoom.us`, `"Microsoft Teams"`) on a Mac, `copilot listen --loopback` on Windows, `copilot listen` for the mic only.
+- Start listening, in the background: `copilot listen --app "Google Chrome"` (or `zoom.us`, `"Microsoft Teams"`) on a Mac, `copilot listen --loopback` on Windows, `copilot listen` for the mic only, `copilot listen --diarize` in a room to label each voice.
 - Give the user a live view: `copilot tail` in a terminal they can see. If you cannot open one, give them the exact command listen prints after `watch it live in another terminal:`.
 - Read along: `copilot wake --since 0 --drafts-since 0 --mutes-since 0`, then again with the `seen=`, `drafts=` and `mutes=` values from each output.
 - Speak, only when the user asks: `copilot say "<two or three sentences>"`, in the foreground, then re-arm wake.
@@ -63,7 +63,7 @@ The skill in `skills/meeting-copilot/SKILL.md` runs this loop; follow it when th
 
 ## Working on this repo
 
-- `src/meeting_copilot/`: `cli.py` (commands and settings), `pipeline.py` (VAD cutting, drafts, the shared transcription slot), `vad.py`, `transcribe.py` (Parakeet, OpenRouter), `sources.py` (mic, Mac tap, Windows loopback, WAV file), `echo.py` (call and said echo), `names.py` (wake name, mute commands), `run.py` (the run file, its lock, the recorder), `wake.py`, `tail.py`, `voice.py` (`copilot say`), `models.py` (downloads).
+- `src/meeting_copilot/`: `cli.py` (commands and settings), `pipeline.py` (VAD cutting, drafts, the shared transcription slot), `diarize.py` (voice labels for `--diarize`), `vad.py`, `transcribe.py` (Parakeet, OpenRouter), `sources.py` (mic, Mac tap, Windows loopback, WAV file), `echo.py` (call and said echo), `names.py` (wake name, mute commands), `run.py` (the run file, its lock, the recorder), `wake.py`, `tail.py`, `voice.py` (`copilot say`), `models.py` (downloads).
 - `tap/`: the Swift process-tap binary. `scripts/build-tap.sh` builds it.
 - `skills/meeting-copilot/SKILL.md`: the skill, for any agent. `.claude/skills/meeting-copilot` and `.agents/skills/meeting-copilot` are links to it, so Claude Code and Codex load it in this repo.
 - Tests: `uv run pytest`. Tests use synthetic audio and mocks; one end-to-end test uses macOS `say` and the downloaded models and skips without them. Never add real recordings or transcripts as fixtures.

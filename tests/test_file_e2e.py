@@ -49,3 +49,36 @@ def test_listen_file_writes_lines_and_drafts(tmp_path, monkeypatch, capsys):
     assert events[-1]["ev"] == "stop"
     assert all(l["latency_ms"] < 2000 for l in lines)
     assert not (out / "current.json").exists()
+
+
+TALK = [("Samantha", "Good morning, I wanted to walk through the budget for next quarter before lunch."),
+        ("Daniel", "Sure, I looked at the numbers last night and the travel line looks too high to me."),
+        ("Samantha", "That is fair, we can cut the conference trips and keep the customer visits."),
+        ("Daniel", "Then I will rewrite the plan this afternoon and send it to everyone by Friday."),
+        ("Samantha", "Great, and let us keep the hiring plan exactly as it is for now."),
+        ("Daniel", "Agreed, I think that covers everything we needed to decide today.")]
+
+
+@pytest.mark.skipif(not (cache_dir() / __import__("meeting_copilot.models", fromlist=["x"]).SPEAKER_MODEL).exists(),
+                    reason="needs the speaker model (copilot download --diarize)")
+def test_listen_file_diarize_labels_two_voices(tmp_path):
+    rate, gap = 16000, b"\x00\x00" * 16000
+    frames = [gap]
+    for i, (voice, text) in enumerate(TALK):
+        part = tmp_path / f"v{i}.wav"
+        subprocess.run(["say", "-v", voice, "-o", str(part), f"--data-format=LEI16@{rate}", text], check=True)
+        with wave.open(str(part)) as w:
+            frames += [w.readframes(w.getnframes()), gap]
+    wav = tmp_path / "two.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(b"".join(frames))
+    out = tmp_path / "out"
+    assert cli.main(["--out", str(out), "listen", "--file", str(wav), "--as", "me", "--speed", "0",
+                     "--draft-ms", "0", "--diarize"]) == 0
+    events = [json.loads(l) for l in next(out.glob("*/lines.jsonl")).read_text().splitlines()]
+    lines = [e for e in events if e["ev"] == "line"]
+    relabel = next((e["lines"] for e in events if e["ev"] == "relabel"), {})
+    labels = [relabel.get(str(l["n"]), l["speaker"]) for l in lines]
+    assert len(lines) == len(TALK)
+    assert all(l["stream"] == "me" for l in lines)
+    assert labels[0::2] == [labels[0]] * 3 and labels[1::2] == [labels[1]] * 3 and labels[0] != labels[1]

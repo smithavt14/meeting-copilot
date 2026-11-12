@@ -76,6 +76,9 @@ No extra build step: the call's audio is WASAPI loopback through PyAudioWPatch, 
 copilot listen --app "Google Chrome"   # macOS: your mic plus Chrome's audio (Google Meet); also zoom.us, "Microsoft Teams", a bundle id
 copilot listen --loopback              # Windows: your mic plus everything the speakers play
 copilot listen                         # in person: the mic only
+copilot listen --diarize               # in person, with each voice in the room labelled s1, s2, ...
+copilot name s2 Joe                    # show s2 as Joe in tail, wake and transcript
+copilot transcript                     # print a run's lines, with names and the end-of-run labels
 copilot tail                           # in another terminal: watch the lines land, with the open drafts underneath
 copilot say "Two hundred and twelve."  # speak an answer aloud (the skill runs this when you ask)
 copilot mute                           # stop writing lines until "Claude, unmute" or copilot unmute
@@ -84,9 +87,11 @@ copilot stop                           # from any other shell: stop the running 
 
 Each finished line prints as it lands (`[12 14:03:21] call: ...`), and the run's directory is printed at the start. `copilot tail` follows the current run from any terminal: final lines as `[12] call: ...`, and on a terminal the open drafts on one line underneath, speakers in two colours and drafts dimmed (set `NO_COLOR` to turn colour off). It exits when the run stops. Other flags: `--no-mic`, `--mic-device <name or index>`, `--name <wake name>`, `--transcribe local|cloud`, `--draft-ms <ms>`. `copilot listen --help` lists them all.
 
+**In a room**, everyone comes through the mic, so every line reads `me`. Add `--diarize` and the mic's lines are labelled by voice instead (`s1`, `s2`, ...), with one label per line. It downloads a 40 MB speaker model once; how it labels, and how accurate it is, is in [docs/usage.md](docs/usage.md#speakers-in-a-room).
+
 **Wear headphones.** On laptop speakers the mic hears the call, and call lines come back as `me` lines. A backstop drops a `me` line that mostly repeats a `call` line from the last few seconds, but some will slip through.
 
-Mute, voice, local or cloud transcription, drafts, the output file, `wake` and every setting are in [docs/usage.md](docs/usage.md).
+Mute, voice, local or cloud transcription, speakers in a room, drafts, the output file, `wake` and every setting are in [docs/usage.md](docs/usage.md).
 
 ## The agent skill
 

@@ -28,6 +28,7 @@ DEFAULTS = {
     "silence_ms": 500,
     "pre_roll_ms": 300,
     "vad_threshold": 0.5,
+    "diarize": False,
     "wake_lines": 8,
     "max_wait_s": 600,
     "voice": "auto",
@@ -111,7 +112,7 @@ def cmd_listen(a: argparse.Namespace) -> int:
     from meeting_copilot.sources import FileSource, LoopbackSource, MacTapSource, MicSource
 
     s = load_settings(a.config)
-    for key in ("name", "transcribe", "cloud_model", "language", "draft_ms"):
+    for key in ("name", "transcribe", "cloud_model", "language", "draft_ms", "diarize"):
         if getattr(a, key, None) is not None:
             s[key] = getattr(a, key)
     out = Path(a.out) if a.out else runmod.default_out()
@@ -172,9 +173,18 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
     from meeting_copilot.vad import SileroVAD
 
     log(f"transcription: {s['transcribe']}" + (f" ({s['cloud_model']})" if s["transcribe"] == "cloud" else " (Parakeet TDT v3)"))
+    diarizer = None
     try:
         engine = make_engine(s["transcribe"], s["cloud_model"], s["language"] or None)
         vad_model = silero_path(log)
+        if s["diarize"]:
+            if "me" in sources:
+                from meeting_copilot.diarize import Diarizer
+
+                diarizer = Diarizer()
+                log("speakers: the mic's voices are labelled s1, s2, ... (copilot name s1 <name> names one)")
+            else:
+                log("--diarize labels the mic stream, and this run has none; ignoring it")
     except Exception as e:
         log(f"cannot start: {e}")
         return 1
@@ -208,11 +218,13 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
     for name in sources:
         streams[name] = Stream(name, SileroVAD(vad_model), scheduler, handlers, threshold=float(s["vad_threshold"]),
                                silence_s=s["silence_ms"] / 1000, pre_roll_s=s["pre_roll_ms"] / 1000,
-                               draft_s=max(0, int(s["draft_ms"])) / 1000)
+                               draft_s=max(0, int(s["draft_ms"])) / 1000,
+                               labeler=diarizer.label if diarizer and name == "me" else None)
         pumps[name] = Pump(streams[name])
     rec.emit("start", t=runmod.iso(time.time()), pid=os.getpid(), streams=sorted(sources), transcribe=s["transcribe"],
              model=s["cloud_model"] if s["transcribe"] == "cloud" else "parakeet-tdt-0.6b-v3",
-             draft_ms=int(s["draft_ms"]), name=s["name"], file=str(a.file) if a.file else None)
+             draft_ms=int(s["draft_ms"]), name=s["name"], file=str(a.file) if a.file else None,
+             **({"diarize": ["me"]} if diarizer else {}))
     runmod.publish(out, run_dir)
 
     stopping = threading.Event()
@@ -228,6 +240,13 @@ def _listen(a: argparse.Namespace, s: dict, out: Path, sources: dict) -> int:
         for st in streams.values():
             st.close()
         rec.flush()
+        if diarizer is not None:
+            try:
+                changed = rec.relabel(diarizer.relabel())
+                if changed:
+                    log(f"speakers: {len(changed)} lines relabelled with the whole meeting in hand")
+            except Exception as e:
+                rec.error(f"speaker relabel failed: {e}")
         rec.emit("stop", t=runmod.iso(time.time()))
         rec.close()
 
@@ -318,6 +337,42 @@ def cmd_tail(a: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_name(a: argparse.Namespace) -> int:
+    out = Path(a.out) if a.out else runmod.default_out()
+    run_dir = Path(a.run) if a.run else (live_run(out) or runmod.newest_run(out))
+    if run_dir is None or not (run_dir / runmod.LINES).exists():
+        log("no run found")
+        return 2
+    from meeting_copilot.wake import read_events
+
+    events = read_events(run_dir / runmod.LINES)
+    sp = runmod.Speakers(events)
+    labels = sorted({sp.label(e) for e in events if e.get("ev") == "line"})
+    if a.label not in labels:
+        log(f"no lines from {a.label} in this run; its speakers are: {', '.join(labels) or 'none yet'}")
+        return 1
+    name = " ".join(a.name).strip()
+    runmod.append_event(run_dir / runmod.LINES, "name", speaker=a.label, name=name, t=runmod.iso(time.time()))
+    print(f"{a.label} is {name}" if name else f"{a.label} has no name")
+    return 0
+
+
+def cmd_transcript(a: argparse.Namespace) -> int:
+    out = Path(a.out) if a.out else runmod.default_out()
+    run_dir = Path(a.run) if a.run else runmod.current_run(out)
+    if run_dir is None or not (run_dir / runmod.LINES).exists():
+        log("no run found")
+        return 2
+    from meeting_copilot.wake import read_events
+
+    events = read_events(run_dir / runmod.LINES)
+    sp = runmod.Speakers(events)
+    for e in events:
+        if e.get("ev") == "line":
+            print(runmod.format_line(e, speakers=sp))
+    return 0
+
+
 def live_run(out: Path) -> Path | None:
     """The running listen's directory, without waiting; None when nothing is listening."""
     cur = runmod.read_current(out)
@@ -381,11 +436,13 @@ def cmd_mute(a: argparse.Namespace) -> int:
 
 
 def cmd_download(a: argparse.Namespace) -> int:
-    from meeting_copilot.models import cache_dir, kokoro_paths, parakeet_dir, silero_path
+    from meeting_copilot.models import cache_dir, kokoro_paths, parakeet_dir, silero_path, speaker_model_path
 
     silero_path(log)
     parakeet_dir(log)
     kokoro_paths(log)
+    if a.diarize:
+        speaker_model_path(log)
     print(f"models ready in {cache_dir()}")
     return 0
 
@@ -410,6 +467,8 @@ def parser() -> argparse.ArgumentParser:
     li.add_argument("--language", help="ISO-639-1 code sent to the cloud model (default en; empty to auto-detect)")
     li.add_argument("--draft-ms", dest="draft_ms", type=int, help="draft interval in ms; 0 turns drafts off (default 1000)")
     li.add_argument("--name", help="the name that calls the copilot (default Claude)")
+    li.add_argument("--diarize", action="store_true", default=None,
+                    help="label each voice the mic hears s1, s2, ... (for a room; downloads a 40 MB model once)")
     li.set_defaults(func=cmd_listen)
 
     wk = sub.add_parser("wake", help="wait for the next batch of lines for the copilot session")
@@ -426,6 +485,16 @@ def parser() -> argparse.ArgumentParser:
     tl.add_argument("--run", help="a run directory (default: the current or newest run)")
     tl.set_defaults(func=cmd_tail)
 
+    nm = sub.add_parser("name", help="show a voice label (s1, s2, ...) as a person's name in tail, wake and transcript")
+    nm.add_argument("label", help="the label in the lines, such as s2")
+    nm.add_argument("name", nargs="*", help="the name to show (empty clears it)")
+    nm.add_argument("--run", help="a run directory (default: the running or newest run)")
+    nm.set_defaults(func=cmd_name)
+
+    tr = sub.add_parser("transcript", help="print a run's lines with the end-of-run labels and names applied")
+    tr.add_argument("--run", help="a run directory (default: the current or newest run)")
+    tr.set_defaults(func=cmd_transcript)
+
     sy = sub.add_parser("say", help="speak a short answer aloud (and mark it so the mic's copy is dropped)")
     sy.add_argument("text", nargs="*", help="what to say (default: read from stdin)")
     sy.add_argument("--voice", choices=["auto", "elevenlabs", "kokoro", "system"],
@@ -441,6 +510,7 @@ def parser() -> argparse.ArgumentParser:
     st.set_defaults(func=cmd_stop)
 
     dl = sub.add_parser("download", help="fetch the VAD, Parakeet and Kokoro models now instead of on first use")
+    dl.add_argument("--diarize", action="store_true", help="also the speaker model --diarize uses (40 MB)")
     dl.set_defaults(func=cmd_download)
     return p
 

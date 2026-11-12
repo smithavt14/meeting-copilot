@@ -4,16 +4,23 @@ Each run writes ``<out>/<YYYY-MM-DD_HHMMSS>/lines.jsonl`` (``<out>`` is ``--out`
 data directory), one JSON object per line, appended as it happens:
 
 - ``{"ev": "start", ...}`` once.
-- ``{"ev": "line", "n", "speaker": "me"|"call", "text", "start", "end", "utt", "named", "latency_ms", "drafts"}``:
-  a final. ``n`` counts from 1. This is the record.
-- ``{"ev": "draft", "d", "speaker", "utt", "text", "start", "named"}``: the open utterance so far. The final with the
-  same speaker and ``utt`` replaces it.
+- ``{"ev": "line", "n", "speaker", "stream": "me"|"call", "text", "start", "end", "utt", "named", "latency_ms",
+  "drafts"}``: a final. ``n`` counts from 1. This is the record. ``stream`` is the audio source. ``speaker`` is the
+  stream too, except on a diarized stream (``--diarize``), where it is the voice: ``s1``, ``s2``, ...
+- ``{"ev": "draft", "d", "speaker", "stream", "utt", "text", "start", "named"}``: the open utterance so far
+  (``speaker`` is always the stream). The final with the same ``stream`` and ``utt`` replaces it. Files written
+  before ``stream`` existed have only ``speaker``, which was the stream.
 - ``{"ev": "echo", ...}``: a "me" line dropped as speaker echo of a call line.
 - ``{"ev": "said", "id", "phase": "start"|"end", "text", "start", "end"}``: written by ``copilot say`` around
   playback. A "me" line or draft inside that window that repeats the answer is dropped as echo.
 - ``{"ev": "mute"|"unmute", "by": "voice"|"command"}``: while muted nothing else is written; the spoken
   "Claude, mute" and "Claude, unmute" lines themselves are.
 - ``{"ev": "empty", "speaker", "utt"}``: an utterance that transcribed to nothing.
+- ``{"ev": "name", "speaker", "name"}``: written by ``copilot name``: show that voice label as that name from now on,
+  in ``tail``, ``wake`` and ``transcript`` (the lines keep the label).
+- ``{"ev": "relabel", "lines": {"<n>": "<label>"}}``: on a diarized run, once just before ``stop``: the lines whose
+  speaker changed when every utterance was clustered again with the whole meeting in hand. It wins over the line's
+  own ``speaker``.
 - ``{"ev": "error", "msg"}``, and ``{"ev": "stop"}`` last.
 
 ``<out>/current.json`` names the running run, and a ``stop`` file in the run directory ends it.
@@ -256,6 +263,19 @@ class Recorder:
         self._follow = Follower(self.path)
         self.muted = False
         self.on_mute: Callable[[bool], None] = lambda muted: None
+        self._voices: dict[int, int] = {}  # line n -> its utterance's index in the diarizer's history
+
+    def relabel(self, labels: list[str]) -> dict[int, str]:
+        """Writes one ``relabel`` event for the lines whose speaker changed in the diarizer's end-of-run pass."""
+        with self._lock:
+            changed = {}
+            for rec in self.lines:
+                i = self._voices.get(rec["n"])
+                if i is not None and i < len(labels) and labels[i] != rec["speaker"]:
+                    changed[rec["n"]] = labels[i]
+            if changed:
+                self.emit("relabel", lines={str(n): lab for n, lab in changed.items()}, t=iso(time.time()))
+            return changed
 
     def poll(self) -> None:
         """Picks up events other processes appended to this run's file: ``said`` from ``copilot say``, ``mute`` and
@@ -315,7 +335,7 @@ class Recorder:
             if self._said_echo(d.stream, d.text, d.start, d.emit) is not None:
                 return  # the mic hearing the spoken answer
             self.d += 1
-            rec = self.emit("draft", d=self.d, speaker=d.stream, utt=d.utt, text=d.text, start=iso(d.start),
+            rec = self.emit("draft", d=self.d, speaker=d.stream, stream=d.stream, utt=d.utt, text=d.text, start=iso(d.start),
                             t=iso(d.emit), named=self.names(d.text), audio_ms=d.audio_ms, ms=d.ms)
             self.drafts.append(rec)
             self._drafted.add((d.stream, d.utt))
@@ -346,7 +366,7 @@ class Recorder:
                 return
             ratio = self._said_echo(f.stream, f.text, f.start, f.end)
             if ratio is not None:
-                self.echoes.append(self.emit("echo", speaker=f.stream, utt=f.utt, text=f.text, ratio=round(ratio, 2),
+                self.echoes.append(self.emit("echo", speaker=f.stream, stream=f.stream, utt=f.utt, text=f.text, ratio=round(ratio, 2),
                                              start=iso(f.start), end=iso(f.end), of="said"))
                 if self.gate is not None:
                     self._release(self.gate.tick(time.time()))
@@ -370,13 +390,13 @@ class Recorder:
         """A dropped utterance whose drafts went out before a mute gets an ``empty`` (no words), so they stop waking."""
         if (stream, utt) in self._drafted:
             self._drafted.discard((stream, utt))
-            self.emit("empty", speaker=stream, utt=utt)
+            self.emit("empty", speaker=stream, stream=stream, utt=utt)
 
     def empty(self, stream: str, utt: int) -> None:
         with self._lock:
             if not self.muted:
                 self._drafted.discard((stream, utt))
-                self.emit("empty", speaker=stream, utt=utt)  # the utterance had no words: its drafts are void
+                self.emit("empty", speaker=stream, stream=stream, utt=utt)  # the utterance had no words: its drafts are void
             else:
                 self._void_drafts(stream, utt)
         if stream == "call" and self.gate:
@@ -405,7 +425,7 @@ class Recorder:
             f: Final = item["final"]
             echo, ratio = self.gate.echo.is_echo(f.text, f.start, f.end)
             if echo:
-                rec = self.emit("echo", speaker=f.stream, utt=f.utt, text=f.text, ratio=round(ratio, 2),
+                rec = self.emit("echo", speaker=f.stream, stream=f.stream, utt=f.utt, text=f.text, ratio=round(ratio, 2),
                                 start=iso(f.start), end=iso(f.end))
                 self.echoes.append(rec)
                 continue
@@ -416,10 +436,12 @@ class Recorder:
             return
         self._drafted.discard((f.stream, f.utt))
         self.n += 1
-        rec = self.emit("line", n=self.n, speaker=f.stream, text=f.text, start=iso(f.start), end=iso(f.end),
+        rec = self.emit("line", n=self.n, speaker=f.speaker or f.stream, stream=f.stream, text=f.text, start=iso(f.start), end=iso(f.end),
                         utt=f.utt, named=self.names(f.text), latency_ms=int((f.emit - f.end) * 1000),
                         drafts=f.drafts, **({"behind_draft": True} if f.behind_draft else {}))
         self.lines.append(rec)
+        if f.voice is not None:
+            self._voices[self.n] = f.voice
         if self.tty and self._draft_shown:
             sys.stdout.write("\r\033[K")
             self._draft_shown = False
@@ -434,9 +456,42 @@ def clock(iso_t: str | None) -> str:
     return iso_t[11:19] if iso_t and len(iso_t) >= 19 else "--:--:--"
 
 
-def format_line(line: dict, call: bool = False) -> str:
-    return f"[{line.get('n')} {clock(line.get('start'))}] {line.get('speaker', '?')}: {line.get('text', '')}" + (" CALL" if call else "")
+def stream_of(e: dict):
+    """The audio source of a line, draft, echo or empty event (older files carry it as ``speaker``)."""
+    return e.get("stream") or e.get("speaker")
+
+
+class Speakers:
+    """Who each line is shown as: the ``relabel`` event's label over the line's own, then a ``copilot name``."""
+
+    def __init__(self, events: list[dict] = ()) -> None:
+        self.names: dict[str, str] = {}
+        self.relabels: dict[str, str] = {}
+        for e in events:
+            self.event(e)
+
+    def event(self, e: dict) -> None:
+        if e.get("ev") == "name" and e.get("speaker"):
+            name = str(e.get("name") or "").strip()
+            if name:
+                self.names[str(e["speaker"])] = name
+            else:
+                self.names.pop(str(e["speaker"]), None)
+        elif e.get("ev") == "relabel" and isinstance(e.get("lines"), dict):
+            self.relabels.update({str(k): str(v) for k, v in e["lines"].items()})
+
+    def label(self, line: dict) -> str:
+        return self.relabels.get(str(line.get("n")), str(line.get("speaker", "?")))
+
+    def show(self, line: dict) -> str:
+        label = self.label(line)
+        return self.names.get(label, label)
+
+
+def format_line(line: dict, call: bool = False, speakers: Speakers | None = None) -> str:
+    who = speakers.show(line) if speakers else line.get("speaker", "?")
+    return f"[{line.get('n')} {clock(line.get('start'))}] {who}: {line.get('text', '')}" + (" CALL" if call else "")
 
 
 def format_draft(draft: dict) -> str:
-    return f"[d{draft.get('d')} {clock(draft.get('start'))}] {draft.get('speaker', '?')}: {draft.get('text', '')} DRAFT"
+    return f"[d{draft.get('d')} {clock(draft.get('start'))}] {stream_of(draft) or '?'}: {draft.get('text', '')} DRAFT"

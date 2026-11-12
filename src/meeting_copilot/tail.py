@@ -1,7 +1,8 @@
 """``copilot tail``: a readable live view of a run. Final lines print as ``[n] speaker: text``. On a TTY the open
 drafts (utterances with no final yet) show on one line under the transcript, rewritten in place and cleared when
-the final arrives, and the speakers are colour-coded (``me`` and ``call`` in two colours, drafts dimmed) unless
-NO_COLOR is set. It exits on the run's ``stop`` event, or when the listener's process is gone."""
+the final arrives, and the speakers are colour-coded (``me`` and ``call`` in two colours, each voice of a diarized
+run in its own, drafts dimmed) unless NO_COLOR is set. A voice named with ``copilot name`` shows as that name from
+then on. It exits on the run's ``stop`` event, or when the listener's process is gone."""
 
 from __future__ import annotations
 
@@ -11,10 +12,20 @@ import time
 from pathlib import Path
 from typing import Callable, TextIO
 
-from meeting_copilot.run import LINES, Follower, pid_alive
+from meeting_copilot.run import LINES, Follower, Speakers, pid_alive, stream_of
 
 
 COLORS = {"me": "\033[36m", "call": "\033[35m", "said": "\033[33m"}  # cyan, magenta, yellow
+VOICE_COLORS = ("\033[36m", "\033[32m", "\033[34m", "\033[91m", "\033[96m", "\033[92m", "\033[94m", "\033[95m")
+
+
+def color_of(label: str) -> str:
+    """``me``, ``call`` and ``said`` keep their colours; voice labels ``s1``, ``s2``, ... cycle through the rest."""
+    if label in COLORS:
+        return COLORS[label]
+    if label[:1] == "s" and label[1:].isdigit():
+        return VOICE_COLORS[(int(label[1:]) - 1) % len(VOICE_COLORS)]
+    return ""
 DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
@@ -32,10 +43,11 @@ def use_color(tty: bool) -> bool:
     return tty and not os.environ.get("NO_COLOR")
 
 
-def format_tail(line: dict, color: bool = False) -> str:
-    speaker = str(line.get("speaker", "?"))
+def format_tail(line: dict, color: bool = False, speakers: Speakers | None = None) -> str:
+    speakers = speakers or Speakers()
+    label, speaker = speakers.label(line), speakers.show(line)
     if color:
-        speaker = f"{COLORS.get(speaker, '')}{speaker}{RESET}"
+        speaker = f"{color_of(label)}{speaker}{RESET}"
     return f"[{line.get('n')}] {speaker}: {line.get('text', '')}"
 
 
@@ -45,7 +57,8 @@ def tail(run_dir: str | Path, since: int = 0, tty: bool = False, stream: TextIO 
     out = stream or sys.stdout
     color = use_color(tty) if color is None else color
     follower = Follower(Path(run_dir) / LINES)
-    drafts: dict[tuple, str] = {}  # (speaker, utt) -> latest draft text, for utterances with no final yet
+    speakers = Speakers()
+    drafts: dict[tuple, str] = {}  # (stream, utt) -> latest draft text, for utterances with no final yet
     shown = False
     muted = False
     pid = None
@@ -86,13 +99,13 @@ def tail(run_dir: str | Path, since: int = 0, tty: bool = False, stream: TextIO 
             if ev == "start" and e.get("pid"):
                 pid = int(e["pid"])
             elif ev == "draft":
-                drafts[(e.get("speaker"), e.get("utt"))] = str(e.get("text", ""))
+                drafts[(stream_of(e), e.get("utt"))] = str(e.get("text", ""))
                 show_drafts()
             elif ev == "line":
-                drafts.pop((e.get("speaker"), e.get("utt")), None)
+                drafts.pop((stream_of(e), e.get("utt")), None)
                 if int(e.get("n") or 0) > since:
                     clear()
-                    out.write(format_tail(e, color) + "\n")
+                    out.write(format_tail(e, color, speakers) + "\n")
                     show_drafts()
                     out.flush()
             elif ev == "said" and e.get("phase") == "start":
@@ -109,8 +122,16 @@ def tail(run_dir: str | Path, since: int = 0, tty: bool = False, stream: TextIO 
                 out.write((f"{BOLD}{msg}{RESET}" if color else msg) + "\n")
                 out.flush()
             elif ev in ("echo", "empty"):
-                if drafts.pop((e.get("speaker"), e.get("utt")), None) is not None:
+                if drafts.pop((stream_of(e), e.get("utt")), None) is not None:
                     show_drafts()
+            elif ev == "name":
+                speakers.event(e)
+                if e.get("speaker"):
+                    clear()
+                    name = str(e.get("name") or "").strip()
+                    out.write(f"--- {e['speaker']} is {name}\n" if name else f"--- {e['speaker']} has no name\n")
+                    show_drafts()
+                    out.flush()
             elif ev == "stop":
                 stopped = True
         if not stopped and pid is not None and not alive(pid):

@@ -91,7 +91,7 @@ def test_recorder_drops_a_muted_final_after_unmute(tmp_path):
     ev = events(rec.path)
     assert [e for e in ev if e["ev"] == "line"][0]["text"] == "Back to it."
     assert len([e for e in ev if e["ev"] == "line"]) == 1
-    assert {"ev": "empty", "speaker": "me", "utt": 1} in ev  # closes the pre-mute draft
+    assert {"ev": "empty", "speaker": "me", "stream": "me", "utt": 1} in ev  # closes the pre-mute draft
     assert rec.gate.call_pending == 0
     assert draft_hits(ev, 0) == []
 

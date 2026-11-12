@@ -75,6 +75,18 @@ def parakeet_dir(log=lambda s: print(s, file=sys.stderr)) -> Path:
     return model
 
 
+SPEAKER_MODEL = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+SPEAKER_URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/{SPEAKER_MODEL}"
+
+
+def speaker_model_path(log=lambda s: print(s, file=sys.stderr)) -> Path:
+    """3D-Speaker ERes2Net-base (about 40 MB), the voice embeddings behind ``--diarize``."""
+    path = cache_dir() / SPEAKER_MODEL
+    if not path.exists():
+        _fetch(SPEAKER_URL, path, log)
+    return path
+
+
 KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
 KOKORO_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 
