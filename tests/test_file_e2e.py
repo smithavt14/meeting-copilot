@@ -44,7 +44,8 @@ def test_listen_file_writes_lines_and_drafts(tmp_path, monkeypatch, capsys):
     drafts = [e for e in events if e["ev"] == "draft"]
     assert [l["n"] for l in lines] == [1, 2]
     assert all(l["speaker"] == "me" for l in lines)
-    assert "rain" in lines[0]["text"].lower() and "leap year" in lines[1]["text"].lower()
+    # "leap" alone: Parakeet hears the Windows voice's "leap year" as "leap here".
+    assert "rain" in lines[0]["text"].lower() and "leap" in lines[1]["text"].lower()
     assert lines[1]["named"] and not lines[0]["named"]
     assert drafts and all(d["d"] == i + 1 for i, d in enumerate(drafts))
     assert events[-1]["ev"] == "stop"
