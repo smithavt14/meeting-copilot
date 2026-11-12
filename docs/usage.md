@@ -43,7 +43,7 @@ copilot transcript            # the run's lines, end-of-run labels and names app
 
 The name goes into the run's file as a `name` event; the lines keep `s2`. `--run <dir>` points either command at an older run.
 
-Measured on the AMI meeting corpus (real meetings recorded by a far-field mic in the middle of the table, which is close to a laptop mic, and by headsets), through `copilot listen --file --as me --diarize`, counting the share of speech whose line got its main speaker's label after the end-of-run pass: 84 to 100% in 4-minute stretches where two people talk, about 75% on average (58 to 98%) in 4-minute stretches with three, and 82 to 93% over two whole 15 to 20 minute four-person meetings. Longer meetings label better, because each voice has more speech behind it. Most errors are short replies and lines where two people overlap.
+Measured on the AMI meeting corpus (real meetings recorded by a far-field mic in the middle of the table, which is close to a laptop mic, and by headsets), through `copilot listen --file --as me --diarize`, counting the share of speech whose line got its main speaker's label after the end-of-run pass: 81 and 100% in two 4-minute stretches where two people talk, 78 and 87% in two 4-minute stretches with three, and 84 to 93% over two whole 15 to 20 minute four-person meetings. Longer meetings label better, because each voice has more speech behind it. Most errors are short replies and lines where two people overlap.
 
 ## Drafts
 
